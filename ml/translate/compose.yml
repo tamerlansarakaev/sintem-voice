@@ -1,0 +1,26 @@
+# Linux + NVIDIA only (NVIDIA Container Toolkit on the host).
+# No published ports: the service has no auth and only the backend talks to it.
+
+services:
+  translate:
+    build: .
+    environment:
+      MODEL_REPO: 17slever17/translate-gemma-4-sub-e2b-GGUF
+      MODEL_REVISION: dc7285667d34af7679d4d6b824d6565e7b69ec84
+      MODEL_FILE: translate_gemma4_sub-E2B-Q4_K_XL.gguf
+      MODEL_SHA256: ade14eaefcd3f70051f87a359b48e284b456d757b3d63ce7c8b397991b5b9d8d
+      CTX_SIZE: 4096
+    volumes:
+      # Weights are downloaded here on first start and reused afterwards.
+      - translate-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  translate-models:

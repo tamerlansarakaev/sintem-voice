@@ -1,0 +1,7 @@
+# torch and torchaudio are installed in the Dockerfile from the CUDA index.
+torchcodec==0.7.0
+voxcpm==2.0.3
+huggingface-hub
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+numpy
