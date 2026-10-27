@@ -4,12 +4,14 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { SubtitlesModule } from './subtitles/subtitles.module.js';
 import { TranscriptionModule } from './transcription/transcription.module.js';
+import { VoiceModule } from './voice/voice.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TranscriptionModule,
     SubtitlesModule,
+    VoiceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

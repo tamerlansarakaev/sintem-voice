@@ -1,9 +1,12 @@
 # Linux + NVIDIA only (NVIDIA Container Toolkit on the host).
-# No published ports: the service has no auth and only the backend talks to it.
+# The service has no auth: allow the port only from the backend host
+# (firewall / private network), never from the internet.
 
 services:
   tts:
     build: .
+    ports:
+      - "8000:8000"
     environment:
       MODEL_REPO: openbmb/VoxCPM2
       MODEL_REVISION: 32279effe8c19989596f05d353d1447f51d9e915

@@ -4,7 +4,6 @@ import { type OnGatewayConnection, WebSocketGateway } from '@nestjs/websockets';
 import { WebSocket, type RawData } from 'ws';
 import {
   MetaTranscribeService,
-  type MetaTranscribeEvent,
   type MetaTranscribeSession,
 } from '../transcription/meta-transcribe.service.js';
 import { StableTranscript } from '../transcription/stable-transcript.js';
@@ -14,6 +13,7 @@ import {
   send,
   toBuffer,
 } from '../transcription/ws.utils.js';
+import { feedTranslator } from '../translation/feed-translator.js';
 import { LANGUAGES } from '../translation/prompt.js';
 import { SimultaneousTranslator } from '../translation/simultaneous-translator.js';
 import { TranslateService } from '../translation/translate.service.js';
@@ -64,7 +64,7 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
         onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
         onEvent: (event) => {
           send(client, event);
-          if (translator) this.feedTranslator(event, transcript, translator);
+          if (translator) feedTranslator(event, transcript, translator);
         },
         onClose: async (code, reason) => {
           // Let the last phrase finish translating after endStream.
@@ -96,27 +96,5 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
       translator?.close();
     });
     keepAlive(client);
-  }
-
-  // speechComplete is the pause: the whole turn is stable by then.
-  private feedTranslator(
-    event: MetaTranscribeEvent,
-    transcript: StableTranscript,
-    translator: SimultaneousTranslator,
-  ): void {
-    switch (event.type) {
-      case 'speechStart':
-        translator.setPaused(false);
-        break;
-      case 'transcript':
-        transcript.addPartial(String(event.transcript ?? ''));
-        translator.updateSource(transcript.stable, transcript.hasDraft);
-        break;
-      case 'speechComplete':
-        transcript.completeTurn(String(event.transcript ?? ''));
-        translator.updateSource(transcript.stable, false);
-        translator.setPaused(true);
-        break;
-    }
   }
 }

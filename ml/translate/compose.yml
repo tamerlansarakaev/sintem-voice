@@ -1,9 +1,12 @@
 # Linux + NVIDIA only (NVIDIA Container Toolkit on the host).
-# No published ports: the service has no auth and only the backend talks to it.
+# The service has no auth: allow the port only from the backend host
+# (firewall / private network), never from the internet.
 
 services:
   translate:
     build: .
+    ports:
+      - "8080:8080"
     environment:
       MODEL_REPO: 17slever17/translate-gemma-4-sub-e2b-GGUF
       MODEL_REVISION: dc7285667d34af7679d4d6b824d6565e7b69ec84

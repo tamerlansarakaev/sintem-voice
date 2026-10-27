@@ -5,6 +5,7 @@ const {
   ipcMain,
   session,
 } = require('electron');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 
 // client/.env is optional; see .env.example.
@@ -73,6 +74,27 @@ const openSubtitlesWindow = () => {
 
 ipcMain.on('subtitles:open', openSubtitlesWindow);
 ipcMain.handle('config:backend-url', () => BACKEND_URL);
+
+// There is no database: the voice sample lives only on this computer and
+// is sent to the server with every live translation session.
+const voicePath = () => path.join(app.getPath('userData'), 'voice.json');
+
+ipcMain.handle('voice:load', async () => {
+  try {
+    return JSON.parse(await fs.readFile(voicePath(), 'utf8'));
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('voice:save', async (_event, voice) => {
+  if (typeof voice?.text !== 'string' || typeof voice?.wav !== 'string') {
+    throw new Error('Invalid voice sample');
+  }
+  const file = voicePath();
+  await fs.writeFile(`${file}.part`, JSON.stringify(voice));
+  await fs.rename(`${file}.part`, file);
+});
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.

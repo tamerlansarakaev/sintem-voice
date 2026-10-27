@@ -10,3 +10,9 @@ contextBridge.exposeInMainWorld('subtitles', {
 contextBridge.exposeInMainWorld('config', {
   getBackendUrl: () => ipcRenderer.invoke('config:backend-url'),
 });
+
+// {text, wav: base64 WAV} or null.
+contextBridge.exposeInMainWorld('voice', {
+  load: () => ipcRenderer.invoke('voice:load'),
+  save: (voice) => ipcRenderer.invoke('voice:save', voice),
+});

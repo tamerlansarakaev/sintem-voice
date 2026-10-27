@@ -1,5 +1,6 @@
-// Runs in an AudioContext at 16 kHz, so Chromium has already resampled the
-// input. Downmixes to mono and posts s16le PCM in ~100 ms chunks.
+// Runs in an AudioContext at the target rate (16 kHz for streaming), so
+// Chromium has already resampled the input. Downmixes to mono and posts
+// s16le PCM in chunks of CHUNK_SAMPLES (~100 ms at 16 kHz).
 const CHUNK_SAMPLES = 1600;
 
 class PcmWorklet extends AudioWorkletProcessor {

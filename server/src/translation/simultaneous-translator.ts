@@ -16,6 +16,8 @@ export interface TranslatorEvents {
   // Replaces the previous draft of the current segment.
   draft(text: string): void;
   final(text: string): void;
+  // The segment failed to translate and was dropped.
+  skipped?(): void;
   error(message: string): void;
 }
 
@@ -193,6 +195,7 @@ export class SimultaneousTranslator {
 
   private finishSegment(segment: Segment, translation?: string): void {
     if (translation !== undefined) this.events.final(translation);
+    else this.events.skipped?.();
     this.cursor += segment.length;
     this.context = segment.text.slice(-MAX_CONTEXT_CHARS);
     this.confirmed = [];
