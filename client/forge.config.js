@@ -4,6 +4,10 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    extendInfo: {
+      NSAudioCaptureUsageDescription:
+        'Live subtitles transcribe the audio playing on this computer.',
+    },
   },
   rebuildConfig: {},
   makers: [

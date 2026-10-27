@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws: wss:"
+    />
+    <title>Live Subtitles</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div class="subtitles">
+      <div class="subtitles-text" id="subtitles-text">
+        Press Start to begin live subtitles
+      </div>
+      <div class="subtitles-controls">
+        <button type="button" class="subtitles-start" id="subtitles-start">
+          Start
+        </button>
+      </div>
+    </div>
+
+    <script src="subtitles.js"></script>
+  </body>
+</html>

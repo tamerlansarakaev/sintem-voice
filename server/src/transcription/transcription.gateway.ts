@@ -5,6 +5,7 @@ import {
   MetaTranscribeService,
   type MetaTranscribeSession,
 } from './meta-transcribe.service.js';
+import { closeCode, keepAlive, send, toBuffer } from './ws.utils.js';
 
 // In: binary PCM s16le 16 kHz mono, then {"type":"endStream"}. Out: Meta events.
 @WebSocketGateway({ path: '/transcribe' })
@@ -21,8 +22,7 @@ export class TranscriptionGateway implements OnGatewayConnection {
         onEvent: (event) => send(client, event),
         onClose: (code, reason) => {
           if (client.readyState !== WebSocket.OPEN) return;
-          // 1005/1006 are reserved and cannot be sent in a close frame.
-          client.close(code === 1005 || code === 1006 ? 1011 : code, reason);
+          client.close(closeCode(code), reason);
         },
       });
     } catch (err) {
@@ -44,17 +44,6 @@ export class TranscriptionGateway implements OnGatewayConnection {
     });
 
     client.on('close', () => session.close());
+    keepAlive(client);
   }
-}
-
-function send(client: WebSocket, payload: object): void {
-  if (client.readyState === WebSocket.OPEN) {
-    client.send(JSON.stringify(payload));
-  }
-}
-
-function toBuffer(data: RawData): Buffer {
-  if (Buffer.isBuffer(data)) return data;
-  if (Array.isArray(data)) return Buffer.concat(data);
-  return Buffer.from(data);
 }

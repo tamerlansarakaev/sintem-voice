@@ -2,11 +2,56 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Hello World!</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'"
+    />
+    <title>Sintem Voice</title>
     <link rel="stylesheet" href="index.css" />
   </head>
   <body>
-    <h1>💖 Hello World!</h1>
-    <p>Welcome to your Electron application.</p>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="brand">Sintem Voice</div>
+        <ul class="nav">
+          <li>
+            <a class="nav-link" href="#live-translation" data-page="live-translation">
+              Live Translation
+            </a>
+          </li>
+          <li>
+            <a class="nav-link" href="#voice-clone" data-page="voice-clone">
+              Voice Clone
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <main class="content">
+        <section class="page" id="page-live-translation" hidden>
+          <header class="page-header">
+            <h1>Live Translation</h1>
+            <button
+              type="button"
+              class="subtitles-toggle"
+              id="subtitles-toggle"
+              aria-pressed="false"
+            >
+              Live Subtitles
+            </button>
+          </header>
+          <div class="page-body"></div>
+        </section>
+
+        <section class="page" id="page-voice-clone" hidden>
+          <header class="page-header">
+            <h1>Voice Clone</h1>
+          </header>
+          <div class="page-body"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="renderer.js"></script>
   </body>
 </html>

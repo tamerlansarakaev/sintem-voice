@@ -5,6 +5,8 @@ import { WebSocket, type RawData } from 'ws';
 // https://dev.meta.ai/docs/speech-to-text
 const META_REALTIME_URL = 'wss://api.meta.ai/v1/asr/realtime';
 const META_TRANSCRIBE_MODEL = 'muse-voice-transcribe-1.0';
+// Meta is billed while the session is open, so endStream must not hang.
+const END_STREAM_TIMEOUT_MS = 10_000;
 
 // Server events from Meta: speechStart, transcript, speechEnd,
 // speechComplete, audioProgress, error. Unknown types must be ignored.
@@ -26,6 +28,8 @@ export class MetaTranscribeSession {
   private pending: Buffer[] = [];
   private ready = false;
   private endRequested = false;
+  private sessionId?: string;
+  private endTimer?: NodeJS.Timeout;
 
   constructor(
     apiKey: string,
@@ -56,7 +60,11 @@ export class MetaTranscribeSession {
     });
 
     this.socket.on('close', (code, reason) => {
+      clearTimeout(this.endTimer);
       this.pending = [];
+      this.logger.log(
+        `Meta session ${this.sessionId ?? '(no handshake)'} closed: ${code}`,
+      );
       this.handlers.onClose(code, reason.toString());
     });
   }
@@ -76,6 +84,7 @@ export class MetaTranscribeSession {
     if (this.endRequested) return;
     this.endRequested = true;
     if (this.ready) this.sendEndStream();
+    this.endTimer = setTimeout(() => this.close(), END_STREAM_TIMEOUT_MS);
   }
 
   close(): void {
@@ -109,6 +118,8 @@ export class MetaTranscribeSession {
 
   private onHandshakeAck(sessionId: string): void {
     this.ready = true;
+    this.sessionId = sessionId;
+    this.logger.log(`Meta session ${sessionId} opened`);
     for (const chunk of this.pending) this.socket.send(chunk);
     this.pending = [];
     this.handlers.onReady(sessionId);
