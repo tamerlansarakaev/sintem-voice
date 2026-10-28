@@ -5,8 +5,8 @@ const MIN_SECONDS = 3;
 const MAX_SECONDS = 10;
 // The exact text goes to the synthesizer with the sample.
 const VOICE_PROMPTS = {
-  en: 'The quick brown fox jumps over the lazy dog. I am recording my own voice for live translation, and I agree to its processing.',
-  ru: 'Съешь же ещё этих мягких французских булок, да выпей чаю. Я записываю свой собственный голос для живого перевода и даю согласие на его обработку.',
+  en: 'Hello! I am recording my voice for live translation. I agree to its processing.',
+  ru: 'Привет! Я записываю свой голос для живого перевода. Даю согласие на его обработку.',
 };
 
 const voiceLanguage = document.getElementById('voice-language');

@@ -2,6 +2,7 @@
 const MIC_SAMPLE_RATE = 16000;
 // Head start before the first chunk, against network jitter.
 const START_BUFFER_S = 0.12;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 const liveSource = document.getElementById('live-source');
 const liveTarget = document.getElementById('live-target');
@@ -11,6 +12,8 @@ const liveStatus = document.getElementById('live-status');
 const liveText = document.getElementById('live-text');
 
 let live = null;
+// The connection being opened, so Stop can cancel it.
+let connecting = null;
 let finals = [];
 let draft = '';
 
@@ -18,7 +21,8 @@ fillLanguages(liveSource, 'ru');
 fillLanguages(liveTarget, 'en');
 
 liveStart.addEventListener('click', () => {
-  if (live) stopLive();
+  if (connecting) cancelConnect();
+  else if (live) stopLive();
   else startLive();
 });
 
@@ -53,10 +57,17 @@ async function startLive() {
   setControls('running');
   liveStatus.textContent = 'Connecting…';
 
+  let pending;
   let socket;
   let stopMicrophone;
   try {
-    socket = await connect(await liveUrl());
+    pending = connect(await liveUrl());
+    connecting = pending;
+    try {
+      socket = await pending.opened;
+    } finally {
+      connecting = null;
+    }
     // The server keeps no voices: the sample goes first in every session.
     socket.send(JSON.stringify({ type: 'voice', ...voice }));
     const player = createPlayer(liveOutput.value);
@@ -78,14 +89,21 @@ async function startLive() {
     live.stopMicrophone = stopMicrophone;
     listOutputs();
   } catch (err) {
-    if (live?.socket === socket) {
+    if (live && live.socket === socket) {
       live.player.close();
       live = null;
     }
     socket?.close();
-    liveStatus.textContent = `Could not start: ${err.message}`;
+    liveStatus.textContent = pending?.cancelled
+      ? 'Stopped.'
+      : `Could not start: ${err.message}`;
     setControls('idle');
   }
+}
+
+function cancelConnect() {
+  connecting.cancelled = true;
+  connecting.socket.close();
 }
 
 // The server translates and speaks the rest, then closes the socket.
@@ -173,17 +191,31 @@ function createPlayer(sinkId) {
   };
 }
 
+// `opened` rejects when the socket closes before opening (an error or a
+// cancel) or does not open in time.
 function connect(url) {
-  return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url);
-    socket.binaryType = 'arraybuffer';
-    socket.addEventListener('open', () => resolve(socket), { once: true });
+  const socket = new WebSocket(url);
+  socket.binaryType = 'arraybuffer';
+  const opened = new Promise((resolve, reject) => {
+    const fail = () => {
+      clearTimeout(timer);
+      reject(new Error(`cannot reach ${url}`));
+    };
+    const timer = setTimeout(() => {
+      socket.close();
+      fail();
+    }, CONNECT_TIMEOUT_MS);
     socket.addEventListener(
-      'error',
-      () => reject(new Error(`cannot reach ${url}`)),
+      'open',
+      () => {
+        clearTimeout(timer);
+        resolve(socket);
+      },
       { once: true },
     );
+    socket.addEventListener('close', fail, { once: true });
   });
+  return { socket, opened, cancelled: false };
 }
 
 // BACKEND_URL is http(s)://host[:port]; the socket uses ws(s) on the same host.

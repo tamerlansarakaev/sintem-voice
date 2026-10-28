@@ -1,6 +1,7 @@
 const SAMPLE_RATE = 16000;
 // Finished phrases kept on screen above the one in progress.
 const MAX_LINES = 3;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 const startButton = document.getElementById('subtitles-start');
 const subtitlesText = document.getElementById('subtitles-text');
@@ -108,12 +109,24 @@ function connect(url) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     socket.binaryType = 'arraybuffer';
-    socket.addEventListener('open', () => resolve(socket), { once: true });
+    const fail = () => {
+      clearTimeout(timer);
+      reject(new Error(`cannot reach ${url}`));
+    };
+    // A host that never answers would leave the socket connecting forever.
+    const timer = setTimeout(() => {
+      socket.close();
+      fail();
+    }, CONNECT_TIMEOUT_MS);
     socket.addEventListener(
-      'error',
-      () => reject(new Error(`cannot reach ${url}`)),
+      'open',
+      () => {
+        clearTimeout(timer);
+        resolve(socket);
+      },
       { once: true },
     );
+    socket.addEventListener('close', fail, { once: true });
   });
 }
 
