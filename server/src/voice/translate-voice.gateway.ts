@@ -140,6 +140,7 @@ export class TranslateVoiceGateway implements OnGatewayConnection {
       },
       onError: fail,
     });
+    speech.warmUp();
     const feeder = new SpeechFeeder((text) => speech.speak(text));
 
     const transcript = new StableTranscript();

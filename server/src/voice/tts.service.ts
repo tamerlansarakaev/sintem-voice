@@ -38,6 +38,12 @@ export class TtsSession {
     this.send({ type: 'flush' });
   }
 
+  // Synthesizes a phrase that is not played, so the first real one does not
+  // wait for the service to wake up. Also registers the voice if needed.
+  warmUp(): void {
+    this.send({ type: 'warmup' });
+  }
+
   end(): void {
     this.send({ type: 'end' });
   }

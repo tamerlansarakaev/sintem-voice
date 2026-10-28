@@ -24,6 +24,10 @@ MAX_VOICE_TEXT_CHARS = 2000
 VOICE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 # Without final punctuation the model tends to cut off the last word.
 SENTENCE_END = (".", "!", "?", "…")
+# After idle the first generation is about a second slower; a warmup
+# segment is synthesized and dropped so the first real phrase is not.
+WARMUP = object()
+WARMUP_TEXT = "Hello."
 # Edge silence of every segment is cut; the margin keeps soft word edges.
 SILENCE_RMS = 0.01
 SILENCE_FRAME_S = 0.01
@@ -114,7 +118,7 @@ async def synthesize(ws: WebSocket, voice_id: str) -> None:
 
     # Receiving and speaking run separately, so text keeps arriving
     # while the previous segment is being synthesized.
-    segments: asyncio.Queue[str | None] = asyncio.Queue()
+    segments: asyncio.Queue[str | object | None] = asyncio.Queue()
     speaker = asyncio.create_task(speak(ws, voice, segments))
     buffer: list[str] = []
     try:
@@ -131,6 +135,8 @@ async def synthesize(ws: WebSocket, voice_id: str) -> None:
                 text = str(message.get("text", "")).strip()
                 if text:
                     buffer.append(text)
+            elif kind == "warmup":
+                segments.put_nowait(WARMUP)
             elif kind in ("flush", "end"):
                 if buffer:
                     segments.put_nowait(" ".join(buffer))
@@ -151,6 +157,10 @@ async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
     try:
         sample_rate = state.model.tts_model.sample_rate
         while (text := await segments.get()) is not None:
+            if text is WARMUP:
+                async for _ in stream_speech(voice, WARMUP_TEXT):
+                    pass
+                continue
             trimmer = EdgeSilenceTrimmer(sample_rate)
             async for chunk in stream_speech(voice, with_sentence_end(text)):
                 for part in trimmer.feed(chunk):
