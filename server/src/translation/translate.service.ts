@@ -4,7 +4,7 @@ import { buildMessages, type PromptInput } from './prompt.js';
 
 const GENERATION = {
   n_predict: 512,
-  temperature: 0.3,
+  temperature: 0,
   seed: 42,
   cache_prompt: true,
 };
@@ -47,9 +47,15 @@ export class TranslateService {
       request.signal,
       AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     ]);
-    // The model's own chat template, so any model works.
+    // The model's own chat template, so any model works. Thinking is off:
+    // reasoning-budget does not apply to /completion, and on fragments the
+    // model would otherwise reason before translating.
     const messages = buildMessages(request);
-    const template = await this.post('/apply-template', { messages }, signal);
+    const template = await this.post(
+      '/apply-template',
+      { messages, chat_template_kwargs: { enable_thinking: false } },
+      signal,
+    );
     const { prompt } = (await template.json()) as { prompt: string };
 
     const response = await this.post(

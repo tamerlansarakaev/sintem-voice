@@ -13,13 +13,9 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
-from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 
-MODEL_REPO = os.environ.get("MODEL_REPO", "openbmb/VoxCPM2")
-# Pinned commit, so the weights never change under us.
-MODEL_REVISION = os.environ["MODEL_REVISION"]
+MODEL_DIR = os.environ["MODEL_DIR"]
 
 # The buffer is spoken after this much time without new text.
 FLUSH_IDLE_S = 0.5
@@ -40,7 +36,6 @@ class Voice:
 
 class ModelState:
     model = None
-    error: str | None = None
 
 
 state = ModelState()
@@ -52,23 +47,14 @@ voices_dir = Path(tempfile.mkdtemp(prefix="voices-"))
 gpu_lock = threading.Lock()
 
 
-def load_model() -> None:
-    try:
-        # Cached in HF_HOME (the /models volume), downloads only once.
-        model_dir = snapshot_download(MODEL_REPO, revision=MODEL_REVISION)
-        from voxcpm import VoxCPM
-
-        state.model = VoxCPM.from_pretrained(model_dir, load_denoiser=False)
-        logger.info("Model %s@%s loaded", MODEL_REPO, MODEL_REVISION)
-    except Exception as exc:
-        logger.exception("Model failed to load")
-        state.error = str(exc)
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Load in the background so /health answers 503 during the download.
-    threading.Thread(target=load_model, daemon=True).start()
+    # The server accepts requests only after this, and a failed load stops
+    # the process, so handlers can rely on the model being there.
+    from voxcpm import VoxCPM
+
+    state.model = VoxCPM.from_pretrained(MODEL_DIR, load_denoiser=False)
+    logger.info("Model loaded from %s", MODEL_DIR)
     yield
 
 
@@ -77,10 +63,6 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/health")
 def health():
-    if state.error is not None:
-        return JSONResponse({"status": "error"}, status_code=500)
-    if state.model is None:
-        return JSONResponse({"status": "loading"}, status_code=503)
     return {"status": "ok"}
 
 
@@ -112,9 +94,6 @@ def register_voice(voice_id: str, sample: VoiceSample) -> Response:
 @app.websocket("/synthesize/{voice_id}")
 async def synthesize(ws: WebSocket, voice_id: str) -> None:
     await ws.accept()
-    if state.model is None:
-        await ws.close(code=1013)
-        return
     voice = voices.get(voice_id)
     if voice is None:
         await ws.send_json({"type": "error", "code": "voice_not_registered"})

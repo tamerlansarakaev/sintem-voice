@@ -183,7 +183,10 @@ export class SimultaneousTranslator {
 
   private confirmAgreedWords(words: string[]): void {
     if (this.closed || !this.previousDraft) return;
-    const agreed = commonPrefixLength(this.previousDraft, words);
+    let agreed = commonPrefixLength(this.previousDraft, words);
+    // A word ending in a comma waits for the next one: confirmed, the comma
+    // makes the model continue with a clause the source may not have.
+    if (agreed > 0 && /[,;:]$/.test(words[agreed - 1])) agreed--;
     if (agreed <= this.confirmed.length) return;
     // Sentence-final punctuation waits for the final translation.
     const added = words

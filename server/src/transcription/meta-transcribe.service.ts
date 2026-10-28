@@ -34,6 +34,8 @@ export class MetaTranscribeSession {
   constructor(
     apiKey: string,
     private readonly handlers: MetaTranscribeHandlers,
+    // Language names such as "English"; a hint, the model may still detect another.
+    languageBias?: string[],
   ) {
     this.socket = new WebSocket(META_REALTIME_URL);
 
@@ -47,6 +49,7 @@ export class MetaTranscribeSession {
           mode: 'ENDPOINTING',
           partialMode: 'CUMULATIVE',
           emitAudioProgress: false,
+          languageBias,
         }),
       );
     });
@@ -137,8 +140,11 @@ export class MetaTranscribeSession {
 export class MetaTranscribeService {
   constructor(private readonly config: ConfigService) {}
 
-  createSession(handlers: MetaTranscribeHandlers): MetaTranscribeSession {
+  createSession(
+    handlers: MetaTranscribeHandlers,
+    languageBias?: string[],
+  ): MetaTranscribeSession {
     const apiKey = this.config.getOrThrow<string>('META_API_KEY');
-    return new MetaTranscribeSession(apiKey, handlers);
+    return new MetaTranscribeSession(apiKey, handlers, languageBias);
   }
 }

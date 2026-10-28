@@ -14,13 +14,27 @@
       <div class="subtitles-text" id="subtitles-text">
         Press Start to begin live subtitles
       </div>
+      <div
+        class="subtitles-text subtitles-translation"
+        id="subtitles-translation"
+        hidden
+      ></div>
       <div class="subtitles-controls">
+        <label class="field">
+          From
+          <select id="subtitles-source"></select>
+        </label>
+        <label class="field">
+          To
+          <select id="subtitles-target"></select>
+        </label>
         <button type="button" class="subtitles-start" id="subtitles-start">
           Start
         </button>
       </div>
     </div>
 
+    <script src="languages.js"></script>
     <script src="subtitles.js"></script>
   </body>
 </html>

@@ -25,8 +25,8 @@ const DRAIN_TIMEOUT_MS = 5000;
 
 // URL: /translate-subtitles?source=en&target=ru
 // In: binary PCM s16le 16 kHz mono, then {"type":"endStream"}.
-// Out: {"type":"ready"}, Meta events and, with TRANSLATE_URL set,
-// {"type":"translationDraft"|"translationFinal","text"}.
+// Out: {"type":"ready","translated"}, Meta events and, when translated
+// (TRANSLATE_URL is set), {"type":"translationDraft"|"translationFinal","text"}.
 @WebSocketGateway({ path: '/translate-subtitles' })
 export class TranslateSubtitlesGateway implements OnGatewayConnection {
   private readonly logger = new Logger(TranslateSubtitlesGateway.name);
@@ -60,19 +60,27 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
 
     let session: MetaTranscribeSession;
     try {
-      session = this.metaTranscribe.createSession({
-        onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
-        onEvent: (event) => {
-          send(client, event);
-          if (translator) feedTranslator(event, transcript, translator);
+      session = this.metaTranscribe.createSession(
+        {
+          onReady: (sessionId) =>
+            send(client, {
+              type: 'ready',
+              sessionId,
+              translated: !!translator,
+            }),
+          onEvent: (event) => {
+            send(client, event);
+            if (translator) feedTranslator(event, transcript, translator);
+          },
+          onClose: async (code, reason) => {
+            // Let the last phrase finish translating after endStream.
+            await translator?.drain(DRAIN_TIMEOUT_MS);
+            if (client.readyState !== WebSocket.OPEN) return;
+            client.close(closeCode(code), reason);
+          },
         },
-        onClose: async (code, reason) => {
-          // Let the last phrase finish translating after endStream.
-          await translator?.drain(DRAIN_TIMEOUT_MS);
-          if (client.readyState !== WebSocket.OPEN) return;
-          client.close(closeCode(code), reason);
-        },
-      });
+        [LANGUAGES[source]],
+      );
     } catch (err) {
       this.logger.error((err as Error).message);
       client.close(1011, 'Subtitles are unavailable');

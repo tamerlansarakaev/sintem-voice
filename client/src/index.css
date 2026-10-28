@@ -217,9 +217,20 @@ body {
   color: var(--text);
 }
 
+.subtitles-translation {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .subtitles-controls {
   display: flex;
   justify-content: center;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.subtitles-controls .field select {
+  min-width: 110px;
 }
 
 .subtitles-start {

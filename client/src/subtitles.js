@@ -4,10 +4,16 @@ const MAX_LINES = 3;
 
 const startButton = document.getElementById('subtitles-start');
 const subtitlesText = document.getElementById('subtitles-text');
+const translationText = document.getElementById('subtitles-translation');
+const sourceSelect = document.getElementById('subtitles-source');
+const targetSelect = document.getElementById('subtitles-target');
 
 let capture = null;
-let lines = [];
-let partial = '';
+const original = createBlock(subtitlesText);
+const translation = createBlock(translationText);
+
+fillLanguages(sourceSelect, 'en');
+fillLanguages(targetSelect, 'ru');
 
 startButton.addEventListener('click', () => {
   if (capture) stop();
@@ -16,8 +22,10 @@ startButton.addEventListener('click', () => {
 
 async function start() {
   setRunning(true);
-  lines = [];
-  partial = '';
+  original.reset();
+  translation.reset();
+  // Shown once the server confirms it translates (TRANSLATE_URL is set).
+  translationText.hidden = true;
   showStatus('Connecting…');
   startButton.disabled = true;
 
@@ -113,24 +121,31 @@ function connect(url) {
 async function subtitlesUrl() {
   const url = new URL('/translate-subtitles', await window.config.getBackendUrl());
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('source', sourceSelect.value);
+  url.searchParams.set('target', targetSelect.value);
   return url.href;
 }
 
-// Meta events: https://dev.meta.ai/docs/speech-to-text
+// Meta events (https://dev.meta.ai/docs/speech-to-text) fill the original
+// block, translation events the translation block under it.
 function handleEvent(event) {
   switch (event.type) {
     case 'ready':
+      translationText.hidden = event.translated !== true;
       showStatus('Listening…');
       break;
     case 'transcript':
       // CUMULATIVE mode: every partial is the whole current hypothesis.
-      partial = event.transcript;
-      render();
+      original.showPartial(event.transcript);
       break;
     case 'speechComplete':
-      partial = '';
-      if (event.transcript) lines = [...lines, event.transcript].slice(-MAX_LINES);
-      render();
+      original.addLine(event.transcript);
+      break;
+    case 'translationDraft':
+      translation.showPartial(event.text);
+      break;
+    case 'translationFinal':
+      translation.addLine(event.text);
       break;
     case 'error':
       showStatus(`Error: ${event.message}`);
@@ -138,12 +153,35 @@ function handleEvent(event) {
   }
 }
 
-function render() {
-  const text = [...lines, partial].filter(Boolean);
-  if (text.length === 0) return;
-  subtitlesText.classList.add('live');
-  subtitlesText.textContent = text.join('\n');
-  subtitlesText.scrollTop = subtitlesText.scrollHeight;
+// Finished lines plus the one in progress, rendered into one element.
+function createBlock(element) {
+  let lines = [];
+  let partial = '';
+
+  function render() {
+    const text = [...lines, partial].filter(Boolean);
+    if (text.length === 0) return;
+    element.classList.add('live');
+    element.textContent = text.join('\n');
+    element.scrollTop = element.scrollHeight;
+  }
+
+  return {
+    reset() {
+      lines = [];
+      partial = '';
+      element.textContent = '';
+    },
+    showPartial(text) {
+      partial = text;
+      render();
+    },
+    addLine(text) {
+      partial = '';
+      if (text) lines = [...lines, text].slice(-MAX_LINES);
+      render();
+    },
+  };
 }
 
 function showStatus(message) {
@@ -154,4 +192,5 @@ function showStatus(message) {
 function setRunning(running) {
   startButton.textContent = running ? 'Stop' : 'Start';
   startButton.classList.toggle('running', running);
+  sourceSelect.disabled = targetSelect.disabled = running;
 }

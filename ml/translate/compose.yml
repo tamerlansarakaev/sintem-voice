@@ -8,7 +8,7 @@ services:
     ports:
       - "8100:8100"
     environment:
-      # The model is pinned in entrypoint.sh.
+      # The model is pinned in start.sh.
       # Concurrent requests. CTX_SIZE is split between them, so each
       # request gets CTX_SIZE / PARALLEL tokens. Override from the shell:
       # PARALLEL=2 CTX_SIZE=8192 docker compose up -d --build

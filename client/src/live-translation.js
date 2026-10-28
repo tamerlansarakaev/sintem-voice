@@ -2,13 +2,6 @@
 const MIC_SAMPLE_RATE = 16000;
 // Head start before the first chunk, against network jitter.
 const START_BUFFER_S = 0.12;
-const LANGUAGES = {
-  en: 'English',
-  ru: 'Russian',
-  es: 'Spanish',
-  fr: 'French',
-  de: 'German',
-};
 
 const liveSource = document.getElementById('live-source');
 const liveTarget = document.getElementById('live-target');
@@ -21,10 +14,8 @@ let live = null;
 let finals = [];
 let draft = '';
 
-for (const [code, name] of Object.entries(LANGUAGES)) {
-  liveSource.add(new Option(name, code, code === 'ru', code === 'ru'));
-  liveTarget.add(new Option(name, code, code === 'en', code === 'en'));
-}
+fillLanguages(liveSource, 'ru');
+fillLanguages(liveTarget, 'en');
 
 liveStart.addEventListener('click', () => {
   if (live) stopLive();

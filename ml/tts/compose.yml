@@ -7,9 +7,6 @@ services:
     build: .
     ports:
       - "8200:8200"
-    environment:
-      MODEL_REPO: openbmb/VoxCPM2
-      MODEL_REVISION: 32279effe8c19989596f05d353d1447f51d9e915
     volumes:
       # Weights are downloaded here on first start and reused afterwards.
       # A named volume inherits /models ownership from the image, so the

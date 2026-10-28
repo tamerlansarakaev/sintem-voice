@@ -126,7 +126,11 @@ export class TranslateVoiceGateway implements OnGatewayConnection {
 
     const speech = this.tts.createSession(voice, {
       onReady: (sampleRate) =>
-        send(client, { type: 'audioFormat', sampleRate, encoding: 'pcm_s16le' }),
+        send(client, {
+          type: 'audioFormat',
+          sampleRate,
+          encoding: 'pcm_s16le',
+        }),
       onAudio: (chunk) => {
         if (client.readyState === WebSocket.OPEN) client.send(chunk);
       },
@@ -157,24 +161,27 @@ export class TranslateVoiceGateway implements OnGatewayConnection {
     );
 
     try {
-      const session = this.metaTranscribe.createSession({
-        onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
-        onEvent: (event) => {
-          send(client, event);
-          feedTranslator(event, transcript, translator);
+      const session = this.metaTranscribe.createSession(
+        {
+          onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
+          onEvent: (event) => {
+            send(client, event);
+            feedTranslator(event, transcript, translator);
+          },
+          onClose: async (code, reason) => {
+            // Translate and speak the last phrase after endStream.
+            await translator.drain(DRAIN_TIMEOUT_MS);
+            if (client.readyState !== WebSocket.OPEN) return;
+            if (code !== 1000) {
+              client.close(closeCode(code), reason);
+              return;
+            }
+            speech.end();
+            setTimeout(() => fail('speech timed out'), SPEECH_TIMEOUT_MS);
+          },
         },
-        onClose: async (code, reason) => {
-          // Translate and speak the last phrase after endStream.
-          await translator.drain(DRAIN_TIMEOUT_MS);
-          if (client.readyState !== WebSocket.OPEN) return;
-          if (code !== 1000) {
-            client.close(closeCode(code), reason);
-            return;
-          }
-          speech.end();
-          setTimeout(() => fail('speech timed out'), SPEECH_TIMEOUT_MS);
-        },
-      });
+        [LANGUAGES[languages.source]],
+      );
       return { session, translator, speech };
     } catch (err) {
       translator.close();

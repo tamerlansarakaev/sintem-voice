@@ -56,7 +56,8 @@ const openSubtitlesWindow = () => {
 
   subtitlesWindow = new BrowserWindow({
     width: 520,
-    height: 280,
+    // Two text blocks: the original and its translation.
+    height: 400,
     title: 'Live Subtitles',
     alwaysOnTop: true,
     webPreferences: {

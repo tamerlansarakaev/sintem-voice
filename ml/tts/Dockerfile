@@ -1,4 +1,4 @@
-# VoxCPM2 TTS service. Weights are not baked in: they are downloaded on
+# VoxCPM2 TTS service. Weights are not baked in: start.sh downloads them on
 # first start into /models (a volume). NVIDIA GPU only.
 #
 # torch wheels bundle the CUDA libraries, so the host only needs the NVIDIA
@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    HF_HOME=/models
+    MODELS_DIR=/models
 
 # ffmpeg for torchcodec, libsndfile for soundfile.
 RUN apt-get update \
@@ -26,6 +26,8 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY app/ app/
+COPY start.sh .
+RUN chmod +x start.sh
 
 RUN useradd --create-home --uid 1000 app \
  && mkdir -p /models \
@@ -38,4 +40,4 @@ EXPOSE 8200
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15m --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8200"]
+ENTRYPOINT ["/app/start.sh"]
