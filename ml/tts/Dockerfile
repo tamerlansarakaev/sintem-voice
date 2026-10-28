@@ -11,16 +11,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MODELS_DIR=/models
 
-# ffmpeg for torchcodec, libsndfile for soundfile.
+# ffmpeg for torchcodec. soundfile wheels bundle libsndfile.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+ && apt-get install -y --no-install-recommends ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# Heavy and rarely changing, so it gets its own layer.
-RUN pip install torch==2.8.0 torchaudio==2.8.0 \
-      --index-url https://download.pytorch.org/whl/cu128
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt

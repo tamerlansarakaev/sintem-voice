@@ -24,6 +24,10 @@ MAX_VOICE_TEXT_CHARS = 2000
 VOICE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 # Without final punctuation the model tends to cut off the last word.
 SENTENCE_END = (".", "!", "?", "…")
+# Edge silence of every segment is cut; the margin keeps soft word edges.
+SILENCE_RMS = 0.01
+SILENCE_FRAME_S = 0.01
+SILENCE_MARGIN_S = 0.08
 
 logger = logging.getLogger("tts")
 
@@ -145,9 +149,14 @@ async def synthesize(ws: WebSocket, voice_id: str) -> None:
 
 async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
     try:
+        sample_rate = state.model.tts_model.sample_rate
         while (text := await segments.get()) is not None:
+            trimmer = EdgeSilenceTrimmer(sample_rate)
             async for chunk in stream_speech(voice, with_sentence_end(text)):
-                await ws.send_bytes(to_pcm16(chunk))
+                for part in trimmer.feed(chunk):
+                    await ws.send_bytes(to_pcm16(part))
+            for part in trimmer.finish():
+                await ws.send_bytes(to_pcm16(part))
             await ws.send_json({"type": "segmentEnd"})
         return True
     except WebSocketDisconnect:
@@ -194,6 +203,42 @@ async def stream_speech(voice: Voice, text: str) -> AsyncIterator[np.ndarray]:
     finally:
         # Frees the GPU for others when the client is gone.
         stop.set()
+
+
+class EdgeSilenceTrimmer:
+    def __init__(self, sample_rate: int) -> None:
+        self.frame = max(1, int(sample_rate * SILENCE_FRAME_S))
+        self.margin = int(sample_rate * SILENCE_MARGIN_S)
+        self.started = False
+        # Quiet audio after the last sound: a pause if sound follows,
+        # the trailing silence if the segment ends.
+        self.held = np.zeros(0, dtype=np.float32)
+
+    def feed(self, chunk: np.ndarray) -> list[np.ndarray]:
+        audio = np.concatenate([self.held, chunk.astype(np.float32).ravel()])
+        loud = self._loud_frames(audio)
+        if not loud.any():
+            self.held = audio if self.started else audio[-self.margin :]
+            return []
+
+        first = int(np.argmax(loud)) * self.frame
+        end = (len(loud) - int(np.argmax(loud[::-1]))) * self.frame
+        start = 0 if self.started else max(0, first - self.margin)
+        self.started = True
+        self.held = audio[end:]
+        return [audio[start:end]]
+
+    def finish(self) -> list[np.ndarray]:
+        tail = self.held[: self.margin] if self.started else self.held[:0]
+        self.held = self.held[:0]
+        return [tail] if len(tail) else []
+
+    def _loud_frames(self, audio: np.ndarray) -> np.ndarray:
+        count = -(-len(audio) // self.frame)
+        padded = np.zeros(count * self.frame, dtype=np.float32)
+        padded[: len(audio)] = audio
+        rms = np.sqrt((padded.reshape(count, self.frame) ** 2).mean(axis=1))
+        return rms >= SILENCE_RMS
 
 
 def with_sentence_end(text: str) -> str:

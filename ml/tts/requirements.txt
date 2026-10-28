@@ -1,4 +1,9 @@
-# torch and torchaudio are installed in the Dockerfile from the CUDA index.
+# CUDA builds of torch live on the PyTorch index, not PyPI. The +cu128
+# suffix makes pip take them from there. Keep torch, torchaudio and
+# torchcodec versions matched.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0+cu128
+torchaudio==2.8.0+cu128
 torchcodec==0.7.0
 voxcpm==2.0.3
 huggingface-hub
