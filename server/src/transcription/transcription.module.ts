@@ -4,5 +4,6 @@ import { TranscriptionGateway } from './transcription.gateway.js';
 
 @Module({
   providers: [MetaTranscribeService, TranscriptionGateway],
+  exports: [MetaTranscribeService],
 })
 export class TranscriptionModule {}

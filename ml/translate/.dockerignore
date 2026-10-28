@@ -1,0 +1,3 @@
+# The image only needs start.sh.
+llama.cpp/
+.env

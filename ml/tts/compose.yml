@@ -1,0 +1,25 @@
+# Linux + NVIDIA only (NVIDIA Container Toolkit on the host).
+# The service has no auth: allow the port only from the backend host
+# (firewall / private network), never from the internet.
+
+services:
+  tts:
+    build: .
+    ports:
+      - "8200:8200"
+    volumes:
+      # Weights are downloaded here on first start and reused afterwards.
+      # A named volume inherits /models ownership from the image, so the
+      # non-root user can write to it (a bind mount would be root-owned).
+      - tts-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  tts-models:
