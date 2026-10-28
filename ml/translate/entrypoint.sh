@@ -19,7 +19,7 @@ fi
 exec /app/llama-server \
   -m "$model" \
   --host 0.0.0.0 \
-  --port 8080 \
+  --port 8100 \
   --parallel "${PARALLEL:-1}" \
   -c "${CTX_SIZE:-4096}" \
   -ngl 99 \

@@ -32,10 +32,10 @@ RUN useradd --create-home --uid 1000 app \
  && chown app /models
 USER app
 
-EXPOSE 8000
+EXPOSE 8200
 
 # start-period covers the first model download.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15m --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8200"]
