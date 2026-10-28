@@ -1,2 +1,5 @@
 # Model weights are downloaded locally, not committed.
 models/
+
+# Per-machine compose settings (PARALLEL, CTX_SIZE).
+.env

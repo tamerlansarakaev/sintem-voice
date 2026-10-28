@@ -14,13 +14,13 @@ if [ ! -f "$model" ]; then
   mv "$tmp" "$model"
 fi
 
-# One slot: requests run one at a time. exec makes llama-server PID 1,
-# so it receives the stop signal.
+# PARALLEL slots run requests concurrently; CTX_SIZE is split between
+# them. exec makes llama-server PID 1, so it receives the stop signal.
 exec /app/llama-server \
   -m "$model" \
   --host 0.0.0.0 \
   --port 8080 \
-  --parallel 1 \
+  --parallel "${PARALLEL:-1}" \
   -c "${CTX_SIZE:-4096}" \
   -ngl 99 \
   --reasoning-budget 0
