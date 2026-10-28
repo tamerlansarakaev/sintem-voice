@@ -1,5 +1,8 @@
 # Model weights are downloaded locally, not committed.
 models/
 
+# llama.cpp source and build from translate/setup.sh.
+translate/llama.cpp/
+
 # Per-machine compose settings (PARALLEL, CTX_SIZE).
 .env
