@@ -9,6 +9,13 @@ contextBridge.exposeInMainWorld('subtitles', {
 
 contextBridge.exposeInMainWorld('config', {
   getBackendUrl: () => ipcRenderer.invoke('config:backend-url'),
+  platform: process.platform,
+});
+
+contextBridge.exposeInMainWorld('windowControls', {
+  minimize: () => ipcRenderer.send('window:minimize'),
+  toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
+  close: () => ipcRenderer.send('window:close'),
 });
 
 // {text, wav: base64 WAV} or null.

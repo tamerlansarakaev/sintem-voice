@@ -25,11 +25,29 @@ if (require('electron-squirrel-startup')) {
 let mainWindow = null;
 let subtitlesWindow = null;
 
+const isMac = process.platform === 'darwin';
+
+// macOS: translucent window with the native buttons inset at the top left.
+// Elsewhere: no frame, the page draws its own buttons at the top right.
+const frameOptions = isMac
+  ? {
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 24, y: 28 },
+      vibrancy: 'under-window',
+      visualEffectState: 'active',
+      backgroundColor: '#00000000',
+    }
+  : { frame: false, backgroundColor: '#0d0c0b' };
+
 const createWindow = () => {
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
+    minWidth: 760,
+    minHeight: 560,
+    show: false,
+    ...frameOptions,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -37,6 +55,7 @@ const createWindow = () => {
 
   // and load the index.html of the app.
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.once('ready-to-show', () => mainWindow.show());
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
@@ -54,12 +73,22 @@ const openSubtitlesWindow = () => {
     return;
   }
 
+  // Frameless everywhere: the page has its own header with a close button.
   subtitlesWindow = new BrowserWindow({
-    width: 520,
-    // Two text blocks: the original and its translation.
-    height: 400,
+    width: 560,
+    height: 240,
+    minWidth: 420,
+    minHeight: 180,
     title: 'Live Subtitles',
     alwaysOnTop: true,
+    frame: false,
+    ...(isMac
+      ? {
+          vibrancy: 'hud',
+          visualEffectState: 'active',
+          backgroundColor: '#00000000',
+        }
+      : { backgroundColor: '#141210' }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -74,6 +103,19 @@ const openSubtitlesWindow = () => {
 };
 
 ipcMain.on('subtitles:open', openSubtitlesWindow);
+
+// Buttons of frameless windows act on the window that sent them.
+ipcMain.on('window:minimize', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+ipcMain.on('window:toggle-maximize', (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (window?.isMaximized()) window.unmaximize();
+  else window?.maximize();
+});
+ipcMain.on('window:close', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close();
+});
 ipcMain.handle('config:backend-url', () => BACKEND_URL);
 
 // There is no database: the voice sample lives only on this computer and

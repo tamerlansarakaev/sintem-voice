@@ -2,10 +2,13 @@
 
 // Streams the microphone as mono s16le PCM chunks at `sampleRate`.
 // Browser processing is off: it colours the voice, and the server and the
-// voice sample should hear the same raw microphone. Returns a stop function.
+// voice sample should hear the same raw microphone. Uses the microphone
+// chosen in Settings. Returns {stop, stream}.
 async function startMicrophone(sampleRate, onChunk) {
+  const deviceId = prefs.get('inputMic');
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
+      ...(deviceId && { deviceId: { ideal: deviceId } }),
       channelCount: 1,
       echoCancellation: false,
       noiseSuppression: false,
@@ -26,10 +29,19 @@ async function startMicrophone(sampleRate, onChunk) {
   worklet.port.onmessage = ({ data }) => onChunk(data);
   audioContext.createMediaStreamSource(stream).connect(worklet);
 
-  return () => {
+  const stop = () => {
     stream.getTracks().forEach((track) => track.stop());
     audioContext.close();
   };
+  return { stop, stream };
+}
+
+// Loudness of an s16le chunk, 0..1, scaled for the wave animation.
+function chunkLevel(chunk) {
+  const pcm = new Int16Array(chunk);
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i++) sum += (pcm[i] / 0x8000) ** 2;
+  return Math.min(1, Math.sqrt(sum / (pcm.length || 1)) * 6);
 }
 
 // 16-bit mono PCM WAV with the plain 44-byte header.

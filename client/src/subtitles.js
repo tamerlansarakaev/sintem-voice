@@ -5,36 +5,59 @@ const CONNECT_TIMEOUT_MS = 10_000;
 
 const startButton = document.getElementById('subtitles-start');
 const subtitlesText = document.getElementById('subtitles-text');
-const translationText = document.getElementById('subtitles-translation');
 const sourceSelect = document.getElementById('subtitles-source');
 const targetSelect = document.getElementById('subtitles-target');
+const placeholder = document.getElementById('subtitles-placeholder');
+const body = document.getElementById('subtitles-body');
+const dot = document.getElementById('subtitles-dot');
+
+document.documentElement.classList.add(`platform-${window.config.platform}`);
+applyTranslations();
 
 let capture = null;
-const original = createBlock(subtitlesText);
-const translation = createBlock(translationText);
+let running = false;
+let hasText = false;
+// Whether the server translates; without it the window falls back to the
+// recognised speech so it is not left empty.
+let translated = true;
+// A status key with its variables, so a language change re-renders it.
+let status = { key: 'live.idle' };
+const captions = createBlock(subtitlesText);
 
 fillLanguages(sourceSelect, 'en');
 fillLanguages(targetSelect, 'ru');
+createDropdown(sourceSelect);
+createDropdown(targetSelect);
 
 startButton.addEventListener('click', () => {
   if (capture) stop();
   else start();
 });
 
+document.getElementById('subtitles-close').addEventListener('click', () =>
+  window.windowControls.close(),
+);
+
+document.addEventListener('uilanguagechange', () => {
+  fillLanguages(sourceSelect, 'en');
+  fillLanguages(targetSelect, 'ru');
+  showStatus(status.key, status.vars, status.error);
+  setRunning(running);
+});
+
 async function start() {
   setRunning(true);
-  original.reset();
-  translation.reset();
-  // Shown once the server confirms it translates (TRANSLATE_URL is set).
-  translationText.hidden = true;
-  showStatus('Connecting…');
+  captions.reset();
+  hasText = false;
+  translated = true;
+  showStatus('live.connecting');
   startButton.disabled = true;
 
   try {
     capture = await startCapture();
   } catch (err) {
     setRunning(false);
-    showStatus(`Could not start: ${err.message}`);
+    showStatus('live.couldNotStart', { message: err.message }, true);
   } finally {
     startButton.disabled = false;
   }
@@ -44,6 +67,7 @@ function stop() {
   const { stream, audioContext, socket } = capture;
   capture = null;
   setRunning(false);
+  showStatus('live.idle');
 
   stream.getTracks().forEach((track) => track.stop());
   audioContext.close();
@@ -65,12 +89,17 @@ async function startCapture() {
   const [audioTrack] = stream.getAudioTracks();
   if (!audioTrack || audioTrack.readyState === 'ended') {
     stream.getTracks().forEach((track) => track.stop());
-    throw new Error('allow "System Audio Recording" in macOS settings');
+    throw new Error(t('live.permission'));
   }
 
   let socket;
   try {
-    socket = await connect(await subtitlesUrl());
+    socket = await connect(
+      await socketUrl('/translate-subtitles', {
+        source: sourceSelect.value,
+        target: targetSelect.value,
+      }),
+    );
   } catch (err) {
     stream.getTracks().forEach((track) => track.stop());
     throw err;
@@ -81,7 +110,14 @@ async function startCapture() {
   socket.addEventListener('close', (event) => {
     if (capture?.socket === socket) {
       stop();
-      showStatus(`Disconnected: ${event.reason || event.code}`);
+      if (event.code === 1000) showStatus('live.idle');
+      else {
+        showStatus(
+          'live.disconnected',
+          { reason: event.reason || event.code },
+          true,
+        );
+      }
     }
   });
 
@@ -130,38 +166,29 @@ function connect(url) {
   });
 }
 
-// BACKEND_URL is http(s)://host[:port]; the socket uses ws(s) on the same host.
-async function subtitlesUrl() {
-  const url = new URL('/translate-subtitles', await window.config.getBackendUrl());
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.searchParams.set('source', sourceSelect.value);
-  url.searchParams.set('target', targetSelect.value);
-  return url.href;
-}
-
-// Meta events (https://dev.meta.ai/docs/speech-to-text) fill the original
-// block, translation events the translation block under it.
+// Only the translation is shown; recognised speech is used only when the
+// server does not translate.
 function handleEvent(event) {
   switch (event.type) {
     case 'ready':
-      translationText.hidden = event.translated !== true;
-      showStatus('Listening…');
+      translated = event.translated === true;
+      showStatus('live.waiting');
       break;
     case 'transcript':
       // CUMULATIVE mode: every partial is the whole current hypothesis.
-      original.showPartial(event.transcript);
+      if (!translated) captions.showPartial(event.transcript);
       break;
     case 'speechComplete':
-      original.addLine(event.transcript);
+      if (!translated) captions.addLine(event.transcript);
       break;
     case 'translationDraft':
-      translation.showPartial(event.text);
+      captions.showPartial(event.text);
       break;
     case 'translationFinal':
-      translation.addLine(event.text);
+      captions.addLine(event.text);
       break;
     case 'error':
-      showStatus(`Error: ${event.message}`);
+      showStatus('live.error', { message: event.message }, true);
       break;
   }
 }
@@ -174,9 +201,10 @@ function createBlock(element) {
   function render() {
     const text = [...lines, partial].filter(Boolean);
     if (text.length === 0) return;
-    element.classList.add('live');
+    hasText = true;
+    placeholder.hidden = true;
     element.textContent = text.join('\n');
-    element.scrollTop = element.scrollHeight;
+    body.scrollTop = body.scrollHeight;
   }
 
   return {
@@ -197,13 +225,25 @@ function createBlock(element) {
   };
 }
 
-function showStatus(message) {
-  subtitlesText.classList.remove('live');
-  subtitlesText.textContent = message;
+// Shown in place of the text until the first words arrive; errors also
+// turn the dot red.
+function showStatus(key, vars = {}, error = false) {
+  status = { key, vars, error };
+  placeholder.textContent = t(key, vars);
+  placeholder.classList.toggle('error', error);
+  placeholder.hidden = hasText && !error;
+  dot.dataset.state = error ? 'error' : running ? 'active' : 'idle';
 }
 
-function setRunning(running) {
-  startButton.textContent = running ? 'Stop' : 'Start';
-  startButton.classList.toggle('running', running);
+function setRunning(value) {
+  running = value;
+  startButton.textContent = t(running ? 'live.stop' : 'live.start');
+  startButton.classList.toggle('danger', running);
   sourceSelect.disabled = targetSelect.disabled = running;
+  if (dot.dataset.state !== 'error' || running) {
+    dot.dataset.state = running ? 'active' : 'idle';
+  }
 }
+
+showStatus(status.key);
+setRunning(false);

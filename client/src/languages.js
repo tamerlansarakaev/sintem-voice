@@ -1,13 +1,11 @@
-const LANGUAGES = {
-  en: 'English',
-  ru: 'Russian',
-  es: 'Spanish',
-  fr: 'French',
-  de: 'German',
-};
+// Languages the server translates between.
+const LANGUAGES = ['en', 'ru', 'es', 'fr', 'de'];
 
+// Fills (or refills after a language change) keeping the current choice.
 function fillLanguages(select, selected) {
-  for (const [code, name] of Object.entries(LANGUAGES)) {
-    select.add(new Option(name, code, code === selected, code === selected));
-  }
+  const value = select.value || selected;
+  select.replaceChildren(
+    ...LANGUAGES.map((code) => new Option(t(`lang.${code}`), code)),
+  );
+  select.value = value;
 }

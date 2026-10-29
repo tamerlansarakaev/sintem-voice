@@ -4,21 +4,34 @@ const MIC_SAMPLE_RATE = 16000;
 const START_BUFFER_S = 0.12;
 const CONNECT_TIMEOUT_MS = 10_000;
 
+// Mixed under the translation when "Mix original microphone" is on.
+const MIX_GAIN = 0.5;
+
 const liveSource = document.getElementById('live-source');
 const liveTarget = document.getElementById('live-target');
-const liveOutput = document.getElementById('live-output');
+const liveSwap = document.getElementById('live-swap');
 const liveStart = document.getElementById('live-start');
-const liveStatus = document.getElementById('live-status');
-const liveText = document.getElementById('live-text');
+const liveDock = document.getElementById('live-dock');
+const liveHint = document.getElementById('live-hint');
+const unlock = document.getElementById('unlock');
+const stepMic = document.getElementById('step-mic');
+const stepVoice = document.getElementById('step-voice');
+
+// The bars keep clear of the button whatever size it scales to.
+const liveWave = createBars(document.getElementById('live-wave'), {
+  gap: () => liveStart.offsetWidth + 60,
+});
 
 let live = null;
 // The connection being opened, so Stop can cancel it.
 let connecting = null;
-let finals = [];
-let draft = '';
+let liveState = 'idle';
+let listening = false;
 
 fillLanguages(liveSource, 'ru');
 fillLanguages(liveTarget, 'en');
+createDropdown(liveSource);
+createDropdown(liveTarget);
 
 liveStart.addEventListener('click', () => {
   if (connecting) cancelConnect();
@@ -26,42 +39,43 @@ liveStart.addEventListener('click', () => {
   else startLive();
 });
 
-// The virtual microphone is an output device: whatever plays into it is
-// what Zoom / Discord / Meet hear.
-async function listOutputs() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const selected = liveOutput.value;
-  liveOutput.replaceChildren(new Option('System default', ''));
-  for (const device of devices) {
-    if (device.kind !== 'audiooutput' || device.deviceId === 'default') continue;
-    liveOutput.add(new Option(device.label || 'Output device', device.deviceId));
-  }
-  liveOutput.value = selected;
-  if (liveOutput.selectedIndex < 0) liveOutput.value = '';
+liveSwap.addEventListener('click', () => {
+  [liveSource.value, liveTarget.value] = [liveTarget.value, liveSource.value];
+});
+
+// Why Start cannot run right now, or null.
+function blocker() {
+  if (!appState.virtualMic) return 'translation.noMic';
+  if (!appState.hasVoice) return 'translation.noVoice';
+  if (!appState.online) return 'translation.offline';
+  return null;
 }
 
 async function startLive() {
+  if (blocker()) return;
   const voice = await window.voice.load();
   if (!voice) {
-    liveStatus.textContent = 'Record your voice on the Voice Clone page first.';
+    updateAppState({ hasVoice: false });
     return;
   }
   if (liveSource.value === liveTarget.value) {
-    liveStatus.textContent = 'Choose two different languages.';
+    toast(t('translation.sameLanguages'), 'error');
     return;
   }
 
-  finals = [];
-  draft = '';
-  render();
-  setControls('running');
-  liveStatus.textContent = 'Connecting…';
+  listening = false;
+  setControls('connecting');
 
   let pending;
   let socket;
-  let stopMicrophone;
+  let microphone;
   try {
-    pending = connect(await liveUrl());
+    pending = connect(
+      await socketUrl('/translate-voice', {
+        source: liveSource.value,
+        target: liveTarget.value,
+      }),
+    );
     connecting = pending;
     try {
       socket = await pending.opened;
@@ -70,8 +84,11 @@ async function startLive() {
     }
     // The server keeps no voices: the sample goes first in every session.
     socket.send(JSON.stringify({ type: 'voice', ...voice }));
-    const player = createPlayer(liveOutput.value);
+    const player = createPlayer(appState.virtualMic?.deviceId, (level) =>
+      liveWave.setOutputLevel(level),
+    );
     live = { socket, player, stopMicrophone: null };
+    setControls('running');
 
     socket.addEventListener('message', ({ data }) => {
       if (typeof data === 'string') handleEvent(JSON.parse(data));
@@ -79,24 +96,26 @@ async function startLive() {
     });
     socket.addEventListener('close', (event) => finishLive(socket, event));
 
-    stopMicrophone = await startMicrophone(MIC_SAMPLE_RATE, (chunk) => {
+    microphone = await startMicrophone(MIC_SAMPLE_RATE, (chunk) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(chunk);
+      liveWave.setLevel(chunkLevel(chunk));
     });
     if (live?.socket !== socket) {
-      stopMicrophone();
+      microphone.stop();
       return;
     }
-    live.stopMicrophone = stopMicrophone;
-    listOutputs();
+    live.stopMicrophone = microphone.stop;
+    if (prefs.get('mixOriginal', false)) player.mix(microphone.stream);
   } catch (err) {
     if (live && live.socket === socket) {
       live.player.close();
       live = null;
     }
     socket?.close();
-    liveStatus.textContent = pending?.cancelled
-      ? 'Stopped.'
-      : `Could not start: ${err.message}`;
+    if (!pending?.cancelled) {
+      toast(t('translation.couldNotStart', { message: err.message }), 'error');
+      refreshHealth();
+    }
     setControls('idle');
   }
 }
@@ -111,7 +130,6 @@ function stopLive() {
   live.stopMicrophone?.();
   live.stopMicrophone = null;
   setControls('finishing');
-  liveStatus.textContent = 'Finishing the last phrase…';
   if (live.socket.readyState === WebSocket.OPEN) {
     live.socket.send(JSON.stringify({ type: 'endStream' }));
   } else {
@@ -126,40 +144,71 @@ function finishLive(socket, event) {
   live.player.close();
   live = null;
   setControls('idle');
-  liveStatus.textContent =
-    event.code === 1000 ? 'Done.' : `Disconnected: ${event.reason || event.code}`;
+  if (event.code !== 1000) {
+    toast(
+      t('translation.disconnected', { reason: event.reason || event.code }),
+      'error',
+    );
+    refreshHealth();
+  }
 }
 
 function handleEvent(event) {
   switch (event.type) {
     case 'ready':
-      liveStatus.textContent = 'Listening…';
+      listening = true;
+      renderLive();
       break;
     case 'audioFormat':
       live?.player.setSampleRate(event.sampleRate);
       break;
-    case 'translationDraft':
-      draft = event.text;
-      render();
-      break;
-    case 'translationFinal':
-      finals.push(event.text);
-      draft = '';
-      render();
-      break;
     case 'error':
-      liveStatus.textContent = `Error: ${event.message}`;
+      toast(t('translation.error', { message: event.message }), 'error');
       break;
   }
 }
 
-function render() {
-  liveText.textContent = [...finals, draft].filter(Boolean).join(' ');
-  liveText.scrollTop = liveText.scrollHeight;
+const LABELS = {
+  idle: 'translation.start',
+  connecting: 'translation.connecting',
+  running: 'translation.stop',
+  finishing: 'translation.finishing',
+};
+
+function renderLive() {
+  const reason = liveState === 'idle' ? blocker() : null;
+  let status = '';
+  if (reason) status = t(reason);
+  else if (liveState === 'connecting' || liveState === 'finishing') {
+    status = t(LABELS[liveState]);
+  } else if (liveState === 'running') {
+    status = t(listening ? 'translation.listening' : 'translation.connecting');
+  }
+  liveHint.textContent = status;
+  liveHint.classList.toggle('warning', Boolean(reason));
+  liveStart.disabled = liveState === 'finishing' || Boolean(reason);
+  liveStart.setAttribute('aria-label', t(LABELS[liveState]));
+  liveStart.title = t(LABELS[liveState]);
+  renderUnlock();
 }
 
-// Plays s16le mono chunks back to back in the order they arrive.
-function createPlayer(sinkId) {
+// Steps unlock in order: the next one gets its button, later ones a lock.
+function renderUnlock() {
+  const done = [Boolean(appState.virtualMic), appState.hasVoice];
+  const current = done.indexOf(false);
+  unlock.hidden = current < 0 || liveState !== 'idle';
+  [stepMic, stepVoice].forEach((step, index) => {
+    step.dataset.state = done[index]
+      ? 'done'
+      : index === current
+        ? 'current'
+        : 'locked';
+  });
+}
+
+// Plays s16le mono chunks back to back in the order they arrive and
+// reports each chunk's level when it starts playing.
+function createPlayer(sinkId, onLevel) {
   const audioContext = new AudioContext();
   if (sinkId) audioContext.setSinkId(sinkId).catch(() => {});
   let sampleRate = 48000;
@@ -182,7 +231,19 @@ function createPlayer(sinkId) {
       const now = audioContext.currentTime;
       if (nextTime < now) nextTime = now + START_BUFFER_S;
       source.start(nextTime);
+      const level = chunkLevel(data);
+      setTimeout(() => onLevel(level), (nextTime - now) * 1000);
+      source.addEventListener('ended', () => {
+        if (audioContext.currentTime >= nextTime - 0.05) onLevel(0);
+      });
       nextTime += buffer.duration;
+    },
+    // The raw microphone plays into the same output.
+    mix(stream) {
+      const gain = audioContext.createGain();
+      gain.gain.value = MIX_GAIN;
+      audioContext.createMediaStreamSource(stream).connect(gain);
+      gain.connect(audioContext.destination);
     },
     close() {
       const left = Math.max(0, nextTime - audioContext.currentTime);
@@ -218,22 +279,22 @@ function connect(url) {
   return { socket, opened, cancelled: false };
 }
 
-// BACKEND_URL is http(s)://host[:port]; the socket uses ws(s) on the same host.
-async function liveUrl() {
-  const url = new URL('/translate-voice', await window.config.getBackendUrl());
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.searchParams.set('source', liveSource.value);
-  url.searchParams.set('target', liveTarget.value);
-  return url.href;
-}
-
 function setControls(state) {
-  liveStart.textContent = state === 'idle' ? 'Start' : 'Stop';
-  liveStart.classList.toggle('running', state !== 'idle');
-  liveStart.disabled = state === 'finishing';
-  liveSource.disabled = liveTarget.disabled = liveOutput.disabled =
+  liveState = state;
+  liveDock.dataset.state = state;
+  if (state !== 'running') {
+    liveWave.setLevel(0);
+    liveWave.setOutputLevel(0);
+  }
+  liveSource.disabled = liveTarget.disabled = liveSwap.disabled =
     state !== 'idle';
+  updateAppState({ recording: state === 'connecting' || state === 'running' });
 }
 
-navigator.mediaDevices.addEventListener('devicechange', listOutputs);
-listOutputs();
+document.addEventListener('appstatechange', renderLive);
+document.addEventListener('uilanguagechange', () => {
+  fillLanguages(liveSource, 'ru');
+  fillLanguages(liveTarget, 'en');
+  renderLive();
+});
+renderLive();
