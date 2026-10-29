@@ -1,8 +1,6 @@
-// Interface strings in every supported language. Elements opt in with
-// data-i18n (text), data-i18n-title and data-i18n-placeholder.
-const UI_LANGUAGES = ['en', 'ru', 'fr', 'de', 'es'];
-
-const STRINGS = {
+// Interface strings in every supported language. English is complete;
+// a key missing in another language falls back to it.
+export const STRINGS = {
   en: {
     'lang.en': 'English',
     'lang.ru': 'Russian',
@@ -500,49 +498,4 @@ const STRINGS = {
   },
 };
 
-// The saved choice, else the system language, else English.
-function detectLanguage() {
-  const saved = prefs.get('uiLanguage');
-  if (UI_LANGUAGES.includes(saved)) return saved;
-  const system = (navigator.language || 'en').slice(0, 2).toLowerCase();
-  return UI_LANGUAGES.includes(system) ? system : 'en';
-}
-
-let uiLanguage = detectLanguage();
-
-function t(key, vars = {}) {
-  const text = STRINGS[uiLanguage][key] ?? STRINGS.en[key] ?? key;
-  return text.replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? '');
-}
-
-function applyTranslations(root = document) {
-  document.documentElement.lang = uiLanguage;
-  for (const el of root.querySelectorAll('[data-i18n]')) {
-    el.textContent = t(el.dataset.i18n);
-  }
-  for (const el of root.querySelectorAll('[data-i18n-title]')) {
-    el.title = t(el.dataset.i18nTitle);
-    el.setAttribute('aria-label', el.title);
-  }
-  for (const el of root.querySelectorAll('[data-i18n-placeholder]')) {
-    el.placeholder = t(el.dataset.i18nPlaceholder);
-  }
-}
-
-// Scripts re-render their own dynamic text on this event.
-function setUiLanguage(language) {
-  uiLanguage = language;
-  prefs.set('uiLanguage', language);
-  applyTranslations();
-  document.dispatchEvent(new Event('uilanguagechange'));
-}
-
-// Another window changed the language.
-window.addEventListener('storage', (event) => {
-  if (event.key !== 'uiLanguage' || !UI_LANGUAGES.includes(event.newValue)) {
-    return;
-  }
-  uiLanguage = event.newValue;
-  applyTranslations();
-  document.dispatchEvent(new Event('uilanguagechange'));
-});
+export type StringKey = keyof (typeof STRINGS)['en'];

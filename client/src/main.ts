@@ -1,16 +1,20 @@
-const {
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {
   app,
   BrowserWindow,
   desktopCapturer,
   ipcMain,
   session,
-} = require('electron');
-const fs = require('node:fs/promises');
-const path = require('node:path');
+  type BrowserWindowConstructorOptions,
+} from 'electron';
+import started from 'electron-squirrel-startup';
+
+import type { VoiceSample } from './shared/api';
 
 // client/.env is optional; see .env.example.
 try {
-  process.loadEnvFile(path.join(__dirname, '..', '.env'));
+  process.loadEnvFile(path.join(app.getAppPath(), '.env'));
 } catch {
   // No .env, fall back to defaults.
 }
@@ -18,18 +22,18 @@ try {
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3000';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (require('electron-squirrel-startup')) {
+if (started) {
   app.quit();
 }
 
-let mainWindow = null;
-let subtitlesWindow = null;
+let mainWindow: BrowserWindow | null = null;
+let subtitlesWindow: BrowserWindow | null = null;
 
 const isMac = process.platform === 'darwin';
 
 // macOS: translucent window with the native buttons inset at the top left.
 // Elsewhere: no frame, the page draws its own buttons at the top right.
-const frameOptions = isMac
+const frameOptions: BrowserWindowConstructorOptions = isMac
   ? {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 24, y: 28 },
@@ -39,8 +43,21 @@ const frameOptions = isMac
     }
   : { frame: false, backgroundColor: '#0d0c0b' };
 
+const preload = path.join(__dirname, 'preload.cjs');
+
+// Both windows are pages of one renderer build: the dev server in
+// development, the built files in a package.
+function loadPage(window: BrowserWindow, page: 'index' | 'subtitles') {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    window.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}/${page}.html`);
+  } else {
+    window.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/${page}.html`),
+    );
+  }
+}
+
 const createWindow = () => {
-  // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
@@ -48,17 +65,13 @@ const createWindow = () => {
     minHeight: 560,
     show: false,
     ...frameOptions,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-    },
+    webPreferences: { preload },
   });
 
-  // and load the index.html of the app.
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  loadPage(mainWindow, 'index');
+  mainWindow.once('ready-to-show', () => mainWindow?.show());
 
-  // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  if (!app.isPackaged) mainWindow.webContents.openDevTools();
 
   // The subtitles window belongs to the main one.
   mainWindow.on('closed', () => {
@@ -89,12 +102,10 @@ const openSubtitlesWindow = () => {
           backgroundColor: '#00000000',
         }
       : { backgroundColor: '#141210' }),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-    },
+    webPreferences: { preload },
   });
 
-  subtitlesWindow.loadFile(path.join(__dirname, 'subtitles.html'));
+  loadPage(subtitlesWindow, 'subtitles');
 
   subtitlesWindow.on('closed', () => {
     subtitlesWindow = null;
@@ -122,7 +133,7 @@ ipcMain.handle('config:backend-url', () => BACKEND_URL);
 // is sent to the server with every live translation session.
 const voicePath = () => path.join(app.getPath('userData'), 'voice.json');
 
-ipcMain.handle('voice:load', async () => {
+ipcMain.handle('voice:load', async (): Promise<VoiceSample | null> => {
   try {
     return JSON.parse(await fs.readFile(voicePath(), 'utf8'));
   } catch {
@@ -130,7 +141,7 @@ ipcMain.handle('voice:load', async () => {
   }
 });
 
-ipcMain.handle('voice:save', async (_event, voice) => {
+ipcMain.handle('voice:save', async (_event, voice: Partial<VoiceSample>) => {
   if (typeof voice?.text !== 'string' || typeof voice?.wav !== 'string') {
     throw new Error('Invalid voice sample');
   }
@@ -139,39 +150,28 @@ ipcMain.handle('voice:save', async (_event, voice) => {
   await fs.rename(`${file}.part`, file);
 });
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // getDisplayMedia() in the subtitles window gets system audio without a
   // picker. Chromium requires a video source too; the renderer drops it.
   // On macOS 14.2+ this needs the "System Audio Recording" permission.
-  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer
       .getSources({ types: ['screen'] })
       .then(([screen]) => callback({ video: screen, audio: 'loopback' }))
-      .catch(() => callback(null));
+      .catch(() => callback({}));
   });
 
   createWindow();
 
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
+  // On macOS a window is re-created when the dock icon is clicked and none
+  // are open.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// Quit when all windows are closed, except on macOS, where apps stay
+// active until the user quits explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.
