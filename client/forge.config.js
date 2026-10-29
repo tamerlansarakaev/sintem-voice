@@ -4,6 +4,11 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    // The virtual microphone driver, built with `npm run driver:build`.
+    extraResource:
+      process.platform === 'darwin'
+        ? ['virtual-mic/build/Release/SintemVirtualMic.driver']
+        : [],
     extendInfo: {
       NSAudioCaptureUsageDescription:
         'Live subtitles transcribe the audio playing on this computer.',

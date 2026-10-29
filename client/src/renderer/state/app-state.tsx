@@ -11,14 +11,13 @@ import {
 
 import { backendUrl, checkServer } from '../lib/backend';
 import { findVirtualOutput } from '../lib/devices';
-import { subscribePref } from '../lib/prefs';
 
 // State the main window pages share. Each page owns some fields and the
 // others react to them.
 export interface AppState {
   online: boolean;
   hasVoice: boolean;
-  // The connected virtual microphone device, or null.
+  // The output of the installed virtual microphone, or null.
   virtualMic: MediaDeviceInfo | null;
   // A microphone is in use; the input device cannot change.
   recording: boolean;
@@ -29,6 +28,8 @@ interface AppStateContext {
   update(patch: Partial<AppState>): void;
   // Checks the server now; concurrent calls share one check.
   refreshHealth(): Promise<boolean>;
+  // Looks the virtual microphone up again and returns it.
+  refreshVirtualMic(): Promise<MediaDeviceInfo | null>;
 }
 
 const Context = createContext<AppStateContext | null>(null);
@@ -59,18 +60,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return checking.current;
   }, [update]);
 
-  // The virtual microphone follows device changes and the Settings choice.
+  const refreshVirtualMic = useCallback(
+    () =>
+      findVirtualOutput().then((virtualMic) => {
+        update({ virtualMic });
+        return virtualMic;
+      }),
+    [update],
+  );
+
   useEffect(() => {
-    const refresh = () =>
-      findVirtualOutput().then((virtualMic) => update({ virtualMic }));
+    const refresh = () => void refreshVirtualMic();
     refresh();
     navigator.mediaDevices.addEventListener('devicechange', refresh);
-    const unsubscribe = subscribePref('virtualMic', refresh);
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', refresh);
-      unsubscribe();
     };
-  }, [update]);
+  }, [refreshVirtualMic]);
 
   useEffect(() => {
     window.voice.load().then((voice) => {
@@ -79,8 +85,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [update]);
 
   const value = useMemo(
-    () => ({ state, update, refreshHealth }),
-    [state, update, refreshHealth],
+    () => ({ state, update, refreshHealth, refreshVirtualMic }),
+    [state, update, refreshHealth, refreshVirtualMic],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

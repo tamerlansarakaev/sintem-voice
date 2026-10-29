@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 
 import { Dropdown } from '../components/Dropdown';
-import { listInputs, listVirtualOutputs } from '../lib/devices';
+import { listInputs, VIRTUAL_MIC_SUPPORTED } from '../lib/devices';
 import { UI_LANGUAGES, useI18n, type UiLanguage } from '../lib/i18n';
 import { setPref, usePref } from '../lib/prefs';
 import type { StringKey } from '../lib/strings';
 import { useAppState } from '../state/app-state';
+import { useToast } from '../state/toasts';
 
 // Each language by its own name.
 const LANGUAGE_NAMES: Record<UiLanguage, string> = {
@@ -16,7 +17,13 @@ const LANGUAGE_NAMES: Record<UiLanguage, string> = {
   es: 'Español',
 };
 
-type VirtualStatus = 'Ready' | 'Added' | 'NotAdded' | 'Unavailable';
+type VirtualStatus = 'Ready' | 'Installed' | 'NotInstalled' | 'Unavailable';
+
+// How long and how often to look for the device after the driver was
+// copied or removed: Core Audio needs a moment to restart, and Chromium
+// does not always report the change as a devicechange event.
+const DEVICE_WAIT_MS = 15000;
+const DEVICE_POLL_MS = 500;
 
 // Lists of devices that follow plugging and unplugging; `deps` say when
 // `list` itself changes.
@@ -40,49 +47,57 @@ function useDevices<T>(list: () => Promise<T[]>, deps: unknown[]) {
 
 export function Settings({ hidden }: { hidden: boolean }) {
   const { t, language, setLanguage } = useI18n();
-  const { state } = useAppState();
+  const { state, refreshVirtualMic } = useAppState();
   const inputMic = usePref('inputMic') ?? '';
   const mixOriginal = usePref('mixOriginal') ?? false;
-  const added = usePref('virtualMic');
+  const toast = useToast();
   const inputs = useDevices(listInputs, []);
-  // Only needed to add a device.
-  const outputs = useDevices(
-    () => (added ? Promise.resolve([]) : listVirtualOutputs()),
-    [added?.deviceId],
-  );
-  const [chosen, setChosen] = useState('');
+  // Set while the driver is being installed or removed and until the
+  // device list catches up.
+  const [pending, setPending] = useState<'install' | 'uninstall' | null>(null);
 
   // A saved microphone that is not connected falls back to the default.
   const inputValue = inputs.some((device) => device.deviceId === inputMic)
     ? inputMic
     : '';
 
+  const device = state.virtualMic;
   let status: VirtualStatus;
   let hint = '';
-  const device = state.virtualMic;
-  if (added && device) {
-    status = state.hasVoice ? 'Ready' : 'Added';
-    hint = state.hasVoice ? device.label : t('settings.addedHint');
-  } else if (added) {
-    status = 'Unavailable';
-    hint = t('settings.missingHint', { name: added.label });
-  } else if (outputs.length > 0) {
-    status = 'NotAdded';
-  } else {
+  if (!VIRTUAL_MIC_SUPPORTED) {
     status = 'Unavailable';
     hint = t('settings.unavailableHint');
+  } else if (device) {
+    status = state.hasVoice ? 'Ready' : 'Installed';
+    hint = state.hasVoice ? device.label : t('settings.installedHint');
+  } else {
+    status = 'NotInstalled';
   }
 
-  function toggleVirtualMic() {
-    if (added) {
-      setPref('virtualMic', null);
-      return;
+  async function toggleVirtualMic() {
+    const action = device ? 'uninstall' : 'install';
+    setPending(action);
+    try {
+      await window.virtualMic[action]();
+      const deadline = Date.now() + DEVICE_WAIT_MS;
+      while (Date.now() < deadline) {
+        const found = await refreshVirtualMic();
+        if (Boolean(found) === (action === 'install')) break;
+        await new Promise((resolve) => setTimeout(resolve, DEVICE_POLL_MS));
+      }
+    } catch (err) {
+      // -128: the password prompt was cancelled.
+      if (!(err as Error).message.includes('-128')) {
+        toast(t('settings.installFailed', { message: (err as Error).message }), 'error');
+      }
+    } finally {
+      setPending(null);
     }
-    const output =
-      outputs.find((option) => option.deviceId === chosen) ?? outputs[0];
-    if (!output) return;
-    setPref('virtualMic', { deviceId: output.deviceId, label: output.label });
   }
+
+  let buttonLabel: StringKey = device ? 'settings.uninstall' : 'settings.install';
+  if (pending === 'install') buttonLabel = 'settings.installing';
+  if (pending === 'uninstall') buttonLabel = 'settings.uninstalling';
 
   return (
     <section className="page" hidden={hidden}>
@@ -147,26 +162,16 @@ export function Settings({ hidden }: { hidden: boolean }) {
             <p className="muted vm-hint" hidden={!hint}>
               {hint}
             </p>
-            {outputs.length >= 2 && (
-              <Dropdown
-                className="setting-select"
-                value={chosen || outputs[0].deviceId}
-                options={outputs.map((output) => ({
-                  value: output.deviceId,
-                  label: output.label,
-                }))}
-                onChange={setChosen}
-                title={t('settings.virtual')}
-              />
+            {VIRTUAL_MIC_SUPPORTED && (
+              <button
+                type="button"
+                className={`primary-button${device ? ' danger' : ''}`}
+                disabled={pending !== null || state.recording}
+                onClick={toggleVirtualMic}
+              >
+                {t(buttonLabel)}
+              </button>
             )}
-            <button
-              type="button"
-              className={`primary-button${added ? ' danger' : ''}`}
-              disabled={(!added && outputs.length === 0) || state.recording}
-              onClick={toggleVirtualMic}
-            >
-              {t(added ? 'settings.remove' : 'settings.add')}
-            </button>
           </div>
           <div className="divider" />
           <label className="setting-row switch-row">

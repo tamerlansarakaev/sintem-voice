@@ -12,8 +12,6 @@ export interface Prefs {
   // deviceId of the input microphone; unset means the system default.
   inputMic: string;
   mixOriginal: boolean;
-  // The virtual microphone the translation plays into.
-  virtualMic: { deviceId: string; label: string };
 }
 
 type Key = keyof Prefs;

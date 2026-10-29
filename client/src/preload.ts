@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ConfigApi,
   SubtitlesApi,
+  VirtualMicApi,
   VoiceApi,
   WindowControlsApi,
 } from './shared/api';
@@ -34,7 +35,13 @@ const voice: VoiceApi = {
   save: (sample) => ipcRenderer.invoke('voice:save', sample),
 };
 
+const virtualMic: VirtualMicApi = {
+  install: () => ipcRenderer.invoke('virtual-mic:install'),
+  uninstall: () => ipcRenderer.invoke('virtual-mic:uninstall'),
+};
+
 contextBridge.exposeInMainWorld('subtitles', subtitles);
 contextBridge.exposeInMainWorld('config', config);
 contextBridge.exposeInMainWorld('windowControls', windowControls);
 contextBridge.exposeInMainWorld('voice', voice);
+contextBridge.exposeInMainWorld('virtualMic', virtualMic);

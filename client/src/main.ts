@@ -1,5 +1,8 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import {
   app,
   BrowserWindow,
@@ -167,6 +170,78 @@ ipcMain.handle('voice:save', async (_event, voice: Partial<VoiceSample>) => {
   const file = voicePath();
   await fs.writeFile(`${file}.part`, JSON.stringify(voice));
   await fs.rename(`${file}.part`, file);
+});
+
+// The virtual microphone is a Core Audio driver from virtual-mic/. A package
+// carries the built bundle in its resources; development uses the Xcode
+// build output.
+const DRIVER_NAME = 'SintemVirtualMic.driver';
+const DRIVER_DIR = '/Library/Audio/Plug-Ins/HAL';
+const driverSource = () =>
+  app.isPackaged
+    ? path.join(process.resourcesPath, DRIVER_NAME)
+    : path.join(app.getAppPath(), 'virtual-mic/build/Release', DRIVER_NAME);
+
+const DRIVER_TARGET = path.join(DRIVER_DIR, DRIVER_NAME);
+const run = promisify(execFile);
+
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+const appleScriptString = (value: string) =>
+  `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+
+// Runs `command` as root behind the system password prompt, which shows
+// `prompt` above the password field, then restarts coreaudiod so it loads
+// or drops the driver without a reboot. Where SIP refuses the launchctl
+// restart, killing the daemon lets launchd restart it.
+async function runAsAdmin(command: string, prompt: string) {
+  const restart =
+    'launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod';
+  const script = `${command} && (${restart})`;
+  const appleScript = `do shell script ${appleScriptString(script)} with prompt ${appleScriptString(prompt)} with administrator privileges`;
+  await run('osascript', ['-e', appleScript]);
+}
+
+ipcMain.handle('virtual-mic:install', async () => {
+  const source = driverSource();
+  await fs.access(source).catch(() => {
+    throw new Error(`Driver not found at ${source}`);
+  });
+  // The root shell has no access to privacy-protected folders such as
+  // Desktop or Documents, so it installs from a temporary copy this process
+  // makes first. ditto keeps the bundle's signature and attributes intact.
+  const staging = await fs.mkdtemp(path.join(os.tmpdir(), 'virtual-mic-'));
+  try {
+    const staged = path.join(staging, DRIVER_NAME);
+    await run('ditto', [source, staged]);
+    await run('xattr', ['-dr', 'com.apple.quarantine', staged]).catch(() => {});
+    // coreaudiod skips a bundle whose code signature, even an ad-hoc one,
+    // does not match its contents; failing here gives a clear error instead.
+    await run('codesign', ['--verify', '--deep', '--strict', staged]).catch(
+      (err: Error & { stderr?: string }) => {
+        throw new Error(`Driver signature is invalid: ${err.stderr?.trim() || err.message}`);
+      },
+    );
+    const target = shellQuote(DRIVER_TARGET);
+    await runAsAdmin(
+      [
+        `mkdir -p ${shellQuote(DRIVER_DIR)}`,
+        `rm -rf ${target}`,
+        `ditto ${shellQuote(staged)} ${target}`,
+        `chown -R root:wheel ${target}`,
+        `chmod -R go-w ${target}`,
+      ].join(' && '),
+      'Sintem Voice wants to install its virtual microphone.',
+    );
+  } finally {
+    await fs.rm(staging, { recursive: true, force: true });
+  }
+});
+
+ipcMain.handle('virtual-mic:uninstall', async () => {
+  await runAsAdmin(
+    `rm -rf ${shellQuote(DRIVER_TARGET)}`,
+    'Sintem Voice wants to remove its virtual microphone.',
+  );
 });
 
 app.whenReady().then(() => {

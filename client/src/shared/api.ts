@@ -14,6 +14,13 @@ export interface VoiceApi {
   save(voice: VoiceSample): Promise<void>;
 }
 
+// Installs or removes the virtual microphone driver; both ask for the
+// administrator password and reject when it is refused.
+export interface VirtualMicApi {
+  install(): Promise<void>;
+  uninstall(): Promise<void>;
+}
+
 export interface SubtitlesApi {
   open(): void;
   // Returns a function that removes the listener.
@@ -29,6 +36,7 @@ export interface WindowControlsApi {
 export interface ExposedApi {
   config: ConfigApi;
   voice: VoiceApi;
+  virtualMic: VirtualMicApi;
   subtitles: SubtitlesApi;
   windowControls: WindowControlsApi;
 }

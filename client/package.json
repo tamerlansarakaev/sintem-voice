@@ -17,6 +17,7 @@
     "make": "electron-forge make",
     "release": "electron-forge release",
     "typecheck": "tsc --noEmit",
+    "driver:build": "xcodebuild -project virtual-mic/NullAudio.xcodeproj -configuration Release CODE_SIGN_IDENTITY=- SYMROOT=build",
     "lint": "echo \"No linting configured\""
   },
   "dependencies": {

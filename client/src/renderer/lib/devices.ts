@@ -1,21 +1,15 @@
-import { getPref } from './prefs';
+// The name the virtual microphone driver gives its device. Chromium may
+// append the transport type, e.g. " (Virtual)", so labels are matched by
+// prefix.
+const VIRTUAL_MIC_NAME = 'Sintem Voice (Virtual Mic)';
 
-// Virtual audio drivers expose an output device whatever plays into it
-// becomes the input of a matching microphone.
-export const VIRTUAL_DEVICE =
-  /blackhole|vb-?audio|cable input|voicemeeter|loopback|soundflower|virtual/i;
+const isVirtualMic = (device: MediaDeviceInfo) =>
+  device.label.startsWith(VIRTUAL_MIC_NAME);
 
-export async function listVirtualOutputs() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices.filter(
-    (device) =>
-      device.kind === 'audiooutput' &&
-      device.deviceId !== 'default' &&
-      VIRTUAL_DEVICE.test(device.label),
-  );
-}
+// The driver exists only for macOS.
+export const VIRTUAL_MIC_SUPPORTED = window.config.platform === 'darwin';
 
-// Microphones to speak into; a virtual device's input would loop the
+// Microphones to speak into; the virtual microphone's input would loop the
 // translation back in.
 export async function listInputs() {
   const devices = await navigator.mediaDevices.enumerateDevices();
@@ -23,19 +17,20 @@ export async function listInputs() {
     (device) =>
       device.kind === 'audioinput' &&
       device.deviceId !== 'default' &&
-      !VIRTUAL_DEVICE.test(device.label),
+      !isVirtualMic(device),
   );
 }
 
-// The added virtual microphone, matched by id and then by name because
-// ids can change between launches. null when not added or not connected.
+// The output side of the installed virtual microphone: whatever plays into
+// it becomes the microphone's input. null when the driver is not installed.
 export async function findVirtualOutput() {
-  const added = getPref('virtualMic');
-  if (!added) return null;
-  const outputs = await listVirtualOutputs();
+  const devices = await navigator.mediaDevices.enumerateDevices();
   return (
-    outputs.find((device) => device.deviceId === added.deviceId) ??
-    outputs.find((device) => device.label === added.label) ??
-    null
+    devices.find(
+      (device) =>
+        device.kind === 'audiooutput' &&
+        device.deviceId !== 'default' &&
+        isVirtualMic(device),
+    ) ?? null
   );
 }
