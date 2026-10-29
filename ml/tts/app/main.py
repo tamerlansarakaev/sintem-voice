@@ -6,12 +6,13 @@ import os
 import re
 import tempfile
 import threading
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
+import torch
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
@@ -19,11 +20,17 @@ MODEL_DIR = os.environ["MODEL_DIR"]
 
 # The buffer is spoken after this much time without new text.
 FLUSH_IDLE_S = 0.5
+# Queued segments are merged into one generation up to this length; longer
+# text would delay the first audio and strain the model.
+MAX_MERGED_CHARS = 300
 MAX_VOICE_WAV_BYTES = 2 * 1024 * 1024
 MAX_VOICE_TEXT_CHARS = 2000
 VOICE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 # Without final punctuation the model tends to cut off the last word.
 SENTENCE_END = (".", "!", "?", "…")
+# A text the backend marks as continuing ends with one of these; it keeps
+# them, so the voice does not fall as at the end of a sentence.
+PHRASE_END = (",", ";", ":")
 # After idle the first generation is about a second slower; a warmup
 # segment is synthesized and dropped so the first real phrase is not.
 WARMUP = object()
@@ -38,8 +45,9 @@ logger = logging.getLogger("tts")
 
 @dataclass
 class Voice:
-    wav_path: Path
-    text: str
+    # The sample encoded once by the model, so a generation does not read
+    # and encode the WAV again. Generation only reads it.
+    prompt_cache: dict
 
 
 class ModelState:
@@ -47,10 +55,9 @@ class ModelState:
 
 
 state = ModelState()
-# Voice samples live only in memory and a temp dir. After a restart the
-# backend gets voice_not_registered and registers the voice again.
+# Voices live only in memory. After a restart the backend gets
+# voice_not_registered and registers the voice again.
 voices: dict[str, Voice] = {}
-voices_dir = Path(tempfile.mkdtemp(prefix="voices-"))
 # The model is not known to be thread-safe, so one generation at a time.
 gpu_lock = threading.Lock()
 
@@ -90,13 +97,27 @@ def register_voice(voice_id: str, sample: VoiceSample) -> Response:
     if len(wav) > MAX_VOICE_WAV_BYTES or wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
         raise HTTPException(400, "invalid wav")
 
-    # voxcpm takes a file path, write it atomically.
-    path = voices_dir / f"{voice_id}.wav"
-    tmp = path.with_suffix(".part")
-    tmp.write_bytes(wav)
-    os.replace(tmp, path)
-    voices[voice_id] = Voice(wav_path=path, text=sample.text)
+    voices[voice_id] = Voice(prompt_cache=build_prompt_cache(wav, sample.text))
     return Response(status_code=204)
+
+
+def build_prompt_cache(wav: bytes, text: str) -> dict:
+    # The same sample is the continuation prompt and the reference voice,
+    # as generate_streaming would use it. voxcpm reads it from a file.
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as file:
+        file.write(wav)
+    try:
+        with gpu_lock, torch.inference_mode():
+            return state.model.tts_model.build_prompt_cache(
+                prompt_text=text,
+                prompt_wav_path=file.name,
+                reference_wav_path=file.name,
+            )
+    except Exception:
+        logger.exception("Could not encode the voice sample")
+        raise HTTPException(400, "invalid wav") from None
+    finally:
+        os.unlink(file.name)
 
 
 @app.websocket("/synthesize/{voice_id}")
@@ -156,11 +177,17 @@ async def synthesize(ws: WebSocket, voice_id: str) -> None:
 async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
     try:
         sample_rate = state.model.tts_model.sample_rate
-        while (text := await segments.get()) is not None:
+        # Segments taken from the queue but not spoken yet.
+        waiting: deque[str | object | None] = deque()
+        while True:
+            text = waiting.popleft() if waiting else await segments.get()
+            if text is None:
+                break
             if text is WARMUP:
                 async for _ in stream_speech(voice, WARMUP_TEXT):
                     pass
                 continue
+            text = merge_waiting(text, segments, waiting)
             trimmer = EdgeSilenceTrimmer(sample_rate)
             async for chunk in stream_speech(voice, with_sentence_end(text)):
                 for part in trimmer.feed(chunk):
@@ -178,6 +205,24 @@ async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
         return False
 
 
+def merge_waiting(text: str, segments: asyncio.Queue, waiting: deque) -> str:
+    # Every generation pays a fixed start-up cost. Segments that arrived
+    # while the previous one was spoken are said as one generation instead,
+    # up to MAX_MERGED_CHARS. Anything else stays queued in order.
+    while True:
+        if not waiting:
+            try:
+                waiting.append(segments.get_nowait())
+            except asyncio.QueueEmpty:
+                return text
+        following = waiting[0]
+        if not isinstance(following, str):
+            return text
+        if len(text) + 1 + len(following) > MAX_MERGED_CHARS:
+            return text
+        text = f"{text} {waiting.popleft()}"
+
+
 async def stream_speech(voice: Voice, text: str) -> AsyncIterator[np.ndarray]:
     loop = asyncio.get_running_loop()
     chunks: asyncio.Queue = asyncio.Queue()
@@ -190,15 +235,23 @@ async def stream_speech(voice: Voice, text: str) -> AsyncIterator[np.ndarray]:
     def produce() -> None:
         try:
             with gpu_lock:
-                for chunk in state.model.generate_streaming(
-                    text=text,
-                    prompt_wav_path=str(voice.wav_path),
-                    prompt_text=voice.text,
-                    reference_wav_path=str(voice.wav_path),
-                ):
-                    if stop.is_set():
-                        break
-                    put(chunk)
+                # Same settings as VoxCPM.generate_streaming, which builds
+                # this cache from the files on every call.
+                steps = state.model.tts_model.generate_with_prompt_cache_streaming(
+                    target_text=" ".join(text.split()),
+                    prompt_cache=voice.prompt_cache,
+                    min_len=2,
+                    max_len=4096,
+                    inference_timesteps=10,
+                    cfg_value=2.0,
+                )
+                try:
+                    for wav, _, _ in steps:
+                        if stop.is_set():
+                            break
+                        put(wav.squeeze(0).cpu().numpy())
+                finally:
+                    steps.close()
         except Exception as exc:
             put(exc)
         finally:
@@ -252,7 +305,7 @@ class EdgeSilenceTrimmer:
 
 
 def with_sentence_end(text: str) -> str:
-    return text if text.endswith(SENTENCE_END) else f"{text}."
+    return text if text.endswith(SENTENCE_END + PHRASE_END) else f"{text}."
 
 
 def to_pcm16(chunk: np.ndarray) -> bytes:

@@ -4,6 +4,10 @@ import { getPref } from './prefs';
 const WORKLET_URL = 'pcm-worklet.js';
 // Head start before the first chunk, against network jitter.
 const START_BUFFER_S = 0.12;
+// Head start after the queue ran dry mid-speech. Synthesis runs barely
+// faster than playback, so a bigger cushion turns the next short wait for
+// the synthesizer into no gap instead of another one.
+const REFILL_BUFFER_S = 0.3;
 // Mixed under the translation when "Mix original microphone" is on.
 const MIX_GAIN = 0.5;
 
@@ -158,7 +162,9 @@ export function createPlayer(
       source.buffer = buffer;
       source.connect(audioContext.destination);
       const now = audioContext.currentTime;
-      if (nextTime < now) nextTime = now + START_BUFFER_S;
+      if (nextTime < now) {
+        nextTime = now + (nextTime === 0 ? START_BUFFER_S : REFILL_BUFFER_S);
+      }
       source.start(nextTime);
       const level = chunkLevel(data);
       setTimeout(() => onLevel(level), (nextTime - now) * 1000);
