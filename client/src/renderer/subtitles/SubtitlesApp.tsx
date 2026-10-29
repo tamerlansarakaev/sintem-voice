@@ -4,7 +4,7 @@ import { Dropdown } from '../components/Dropdown';
 import { streamPcm } from '../lib/audio';
 import { connect, socketUrl } from '../lib/backend';
 import { useI18n } from '../lib/i18n';
-import { languageOptions, type Language } from '../lib/languages';
+import { counterpart, languageOptions, type Language } from '../lib/languages';
 import type { StringKey } from '../lib/strings';
 
 const SAMPLE_RATE = 16000;
@@ -31,11 +31,22 @@ type ServerEvent =
   | { type: 'translationFinal'; text: string }
   | { type: 'error'; message: string };
 
+// The app's language, unless it is the English of the audio itself.
+function subtitleLanguage(language: Language): Language {
+  return language === 'en' ? counterpart(language) : language;
+}
+
 export function SubtitlesApp() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  // English audio, subtitles in the app's language.
   const [source, setSource] = useState<Language>('en');
-  const [target, setTarget] = useState<Language>('ru');
+  const [target, setTarget] = useState<Language>(subtitleLanguage(language));
   const [running, setRunning] = useState(false);
+
+  // When the app language changes in Settings, subtitles switch to it.
+  useEffect(() => {
+    if (!running) setTarget(subtitleLanguage(language));
+  }, [language]);
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState<Status>({ key: 'live.idle' });
   const [lines, setLines] = useState<string[]>([]);

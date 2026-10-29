@@ -5,6 +5,7 @@ import {
   BrowserWindow,
   desktopCapturer,
   ipcMain,
+  screen,
   session,
   type BrowserWindowConstructorOptions,
 } from 'electron';
@@ -86,10 +87,19 @@ const openSubtitlesWindow = () => {
     return;
   }
 
+  // Opens at the top centre of the display the main window is on.
+  const width = 560;
+  const height = 240;
+  const { workArea } = mainWindow
+    ? screen.getDisplayMatching(mainWindow.getBounds())
+    : screen.getPrimaryDisplay();
+
   // Frameless everywhere: the page has its own header with a close button.
   subtitlesWindow = new BrowserWindow({
-    width: 560,
-    height: 240,
+    width,
+    height,
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: workArea.y + 16,
     minWidth: 420,
     minHeight: 180,
     title: 'Live Subtitles',
@@ -103,6 +113,15 @@ const openSubtitlesWindow = () => {
         }
       : { backgroundColor: '#141210' }),
     webPreferences: { preload },
+  });
+
+  // The default "floating" level sits below full-screen apps and other
+  // apps' panels; "screen-saver" keeps the subtitles above everything,
+  // on every desktop and over full-screen windows.
+  subtitlesWindow.setAlwaysOnTop(true, 'screen-saver');
+  subtitlesWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
   });
 
   loadPage(subtitlesWindow, 'subtitles');

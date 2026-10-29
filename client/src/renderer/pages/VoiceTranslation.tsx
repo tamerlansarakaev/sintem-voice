@@ -5,7 +5,7 @@ import { chunkLevel, createPlayer, startMicrophone, type Player } from '../lib/a
 import { connect, socketUrl, type PendingSocket } from '../lib/backend';
 import { createBars, type Bars } from '../lib/canvas';
 import { useI18n } from '../lib/i18n';
-import { languageOptions, type Language } from '../lib/languages';
+import { counterpart, languageOptions, type Language } from '../lib/languages';
 import { getPref } from '../lib/prefs';
 import type { StringKey } from '../lib/strings';
 import { useAppState } from '../state/app-state';
@@ -34,12 +34,20 @@ type ServerEvent =
   | { type: 'error'; message: string };
 
 export function VoiceTranslation({ hidden }: { hidden: boolean }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const toast = useToast();
   const { state: app, update, refreshHealth } = useAppState();
-  const [source, setSource] = useState<Language>('ru');
-  const [target, setTarget] = useState<Language>('en');
+  // You speak the app's language, others hear English (or Russian).
+  const [source, setSource] = useState<Language>(language);
+  const [target, setTarget] = useState<Language>(counterpart(language));
   const [liveState, setLiveState] = useState<LiveState>('idle');
+
+  // When the app language changes in Settings, the pair switches to it.
+  useEffect(() => {
+    if (liveState !== 'idle') return;
+    setSource(language);
+    setTarget(counterpart(language));
+  }, [language]);
   const [listening, setListening] = useState(false);
   const live = useRef<Live | null>(null);
   // The connection being opened, so Stop can cancel it.
@@ -244,6 +252,9 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
               <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
             </svg>
             <span className="icon-stop" />
+            <span className="mic-label">
+              {t(liveState === 'idle' ? 'live.start' : 'live.stop')}
+            </span>
           </button>
         </div>
         <p className={`dock-status${reason ? ' warning' : ''}`}>{status}</p>

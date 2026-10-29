@@ -8,3 +8,8 @@ export type Language = (typeof LANGUAGES)[number];
 export function languageOptions(t: Translate): DropdownOption<Language>[] {
   return LANGUAGES.map((code) => ({ value: code, label: t(`lang.${code}`) }));
 }
+
+// The language to pair with `language` when nothing else is chosen.
+export function counterpart(language: Language): Language {
+  return language === 'en' ? 'ru' : 'en';
+}

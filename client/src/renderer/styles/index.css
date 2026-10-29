@@ -267,7 +267,6 @@ button:disabled {
 
 /* Form controls */
 
-.select,
 .input {
   min-width: 0;
   padding: 9px 12px;
@@ -278,22 +277,6 @@ button:disabled {
   transition: border-color 0.2s;
 }
 
-.select {
-  min-width: 200px;
-  padding-right: 34px;
-  appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position:
-    calc(100% - 17px) 50%,
-    calc(100% - 12px) 50%;
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
-  cursor: pointer;
-}
-
-.select:hover:not(:disabled),
 .input:hover {
   border-color: rgba(255, 238, 214, 0.24);
 }
@@ -301,11 +284,6 @@ button:disabled {
 .input:focus {
   border-color: var(--accent);
   outline: none;
-}
-
-.select:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .switch {
@@ -786,9 +764,12 @@ html:not(.platform-darwin) .page-header {
 }
 
 .mic-button {
-  display: grid;
+  display: flex;
   flex: none;
-  place-items: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 0.6vw, 10px);
   position: relative;
   /* Grows with the window so it does not get lost on a large screen. */
   width: clamp(120px, 11vw, 184px);
@@ -801,6 +782,8 @@ html:not(.platform-darwin) .page-header {
     0 0 0 clamp(10px, 1vw, 16px) rgba(245, 165, 36, 0.08),
     0 18px 40px rgba(0, 0, 0, 0.4);
   color: var(--accent-text);
+  font-size: clamp(15px, 1.25vw, 20px);
+  font-weight: 650;
   cursor: pointer;
   transition:
     background 0.2s,
@@ -817,17 +800,17 @@ html:not(.platform-darwin) .page-header {
 }
 
 .mic-button .icon-mic {
-  width: 36%;
-  height: 36%;
+  width: 30%;
+  height: 30%;
   stroke-width: 2;
 }
 
 .mic-button .icon-stop {
   display: none;
-  width: 27%;
-  height: 27%;
+  width: 22%;
+  height: 22%;
   border-radius: 18%;
-  background: #fff;
+  background: currentColor;
 }
 
 .mic-button:disabled {
@@ -847,15 +830,14 @@ html:not(.platform-darwin) .page-header {
   box-shadow:
     0 0 0 clamp(10px, 1vw, 16px) rgba(240, 82, 79, 0.12),
     0 18px 40px rgba(0, 0, 0, 0.4);
+  color: #fff;
 }
 
-.orb[data-state='running'] .icon-mic,
-.orb[data-state='finishing'] .icon-mic {
+.orb:not([data-state='idle']) .icon-mic {
   display: none;
 }
 
-.orb[data-state='running'] .icon-stop,
-.orb[data-state='finishing'] .icon-stop {
+.orb:not([data-state='idle']) .icon-stop {
   display: block;
 }
 
@@ -1028,65 +1010,94 @@ html:not(.platform-darwin) .page-header {
 
 /* Voice Clone */
 
-/* The text to read, set large; read words light up as time passes. */
-.teleprompter {
+.clone-stage {
   display: flex;
   flex: 1;
   flex-direction: column;
   justify-content: center;
   width: 100%;
-  max-width: 780px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 32px 0;
+  padding: 28px 0;
 }
 
-.prompt-toolbar {
+/* The text to read, set large; read words light up as time passes. */
+.prompt-card {
+  position: relative;
+  overflow: hidden;
+  padding: 22px 32px 40px;
+  transition: border-color 0.3s;
+}
+
+.voice-clone.recording .prompt-card {
+  border-color: rgba(229, 72, 77, 0.35);
+}
+
+.voice-clone.paused .prompt-card {
+  border-color: rgba(245, 165, 36, 0.3);
+}
+
+.prompt-card-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
+  margin: 0 -10px 0 0;
 }
 
-.segmented {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.segmented button {
-  padding: 5px 12px;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-muted);
+.prompt-count {
+  color: var(--text-faint);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.prompt-dots {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+}
+
+.prompt-dots button {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
   cursor: pointer;
   transition:
-    background 0.18s,
-    color 0.18s;
+    width 0.25s var(--ease),
+    background 0.2s;
 }
 
-.segmented button[aria-checked='true'] {
-  background: rgba(245, 165, 36, 0.14);
-  color: var(--accent);
+.prompt-dots button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.32);
 }
 
-.segmented button:disabled {
-  cursor: default;
+.prompt-dots button[aria-selected='true'] {
+  width: 18px;
+  background: var(--accent);
+}
+
+.prompt-dots button:disabled {
+  opacity: 1;
+}
+
+.prompt-card-head .ghost-button svg {
+  order: 1;
 }
 
 .voice-prompt {
-  margin: 28px 0 0;
+  margin: 30px 0 0;
   padding: 0;
   color: var(--text);
   font-family: var(--font-serif);
-  font-size: clamp(28px, 3.6vw, 40px);
-  line-height: 1.35;
+  font-size: clamp(26px, 3.2vw, 36px);
+  line-height: 1.38;
   letter-spacing: -0.01em;
-  text-wrap: balance;
+  text-wrap: pretty;
+  animation: fade-in 0.35s var(--ease);
 }
 
 .voice-prompt span {
@@ -1094,26 +1105,95 @@ html:not(.platform-darwin) .page-header {
 }
 
 /* While recording, unread words wait in grey. */
-.page:has(.recorder.recording, .recorder.paused) .voice-prompt span {
+.voice-clone:is(.recording, .paused) .voice-prompt span {
   color: var(--text-faint);
 }
 
-.page:has(.recorder.recording, .recorder.paused) .voice-prompt span.read {
+.voice-clone:is(.recording, .paused) .voice-prompt span.read {
   color: var(--accent);
 }
 
-.prompt-hint {
-  max-width: 520px;
-  margin-top: 20px;
-  color: var(--text-muted);
+/* Thin line along the bottom edge of the card. */
+.prompt-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.progress-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+
+.voice-clone.recording .progress-fill {
+  background: var(--red);
+}
+
+.saved-voice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px 18px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.2s;
+}
+
+.saved-voice.playing {
+  border-color: rgba(245, 165, 36, 0.35);
+}
+
+.saved-voice .round-button {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.saved-voice .round-button:hover:not(:disabled) {
+  background: rgba(245, 165, 36, 0.24);
+}
+
+.round-button .icon-play {
+  fill: currentColor;
+  stroke-width: 1.6;
+}
+
+.saved-voice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.saved-voice-title {
+  display: flex;
+  gap: 8px;
   font-size: 13.5px;
-  line-height: 1.5;
+  font-weight: 600;
+}
+
+.saved-voice-length {
+  color: var(--text-faint);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.saved-voice-prompt {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recorder {
-  width: min(100%, 520px);
+  width: min(100%, 560px);
   padding-left: 18px;
-  overflow: hidden;
 }
 
 .recorder-time {
@@ -1130,12 +1210,12 @@ html:not(.platform-darwin) .page-header {
   background: var(--text-faint);
 }
 
-.recorder.recording .rec-dot {
+.voice-clone.recording .rec-dot {
   background: var(--red);
   animation: blink 1s ease-in-out infinite;
 }
 
-.recorder.paused .rec-dot {
+.voice-clone.paused .rec-dot {
   background: var(--accent);
 }
 
@@ -1146,30 +1226,36 @@ html:not(.platform-darwin) .page-header {
   font-variant-numeric: tabular-nums;
 }
 
-.recorder.recording .timer,
-.recorder.paused .timer {
+.voice-clone:is(.recording, .paused) .timer {
   color: var(--text);
 }
 
-/* Thin line along the bottom edge of the dock. */
-.progress {
-  position: absolute;
-  right: 24px;
-  bottom: 0;
-  left: 24px;
-  height: 2px;
+/* Microphone loudness while recording, from --level 0..1. */
+.level-meter {
+  --level: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  margin-left: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
 
-.progress-fill {
-  width: 0;
-  height: 100%;
+.voice-clone:is(.recording, .paused) .level-meter {
+  opacity: 1;
+}
+
+.level-meter span {
+  width: 3px;
+  height: calc(4px + 18px * var(--level) * var(--scale));
   border-radius: 2px;
-  background: var(--accent);
-  transition: width 0.1s linear;
+  background: var(--red);
+  transition: height 0.08s linear;
 }
 
-.recorder.recording .progress-fill {
-  background: var(--red);
+.voice-clone.paused .level-meter span {
+  background: var(--text-faint);
 }
 
 .round-button,
@@ -1208,12 +1294,12 @@ html:not(.platform-darwin) .page-header {
   stroke-width: 1.6;
 }
 
-.round-button .icon-resume,
-.recorder.paused .round-button .icon-pause {
+.pause-button .icon-resume,
+.voice-clone.paused .pause-button .icon-pause {
   display: none;
 }
 
-.recorder.paused .round-button .icon-resume {
+.voice-clone.paused .pause-button .icon-resume {
   display: block;
 }
 
@@ -1493,6 +1579,25 @@ html:not(.platform-darwin) .page-header {
   background: rgba(255, 255, 255, 0.07);
 }
 
+
+/* A standalone pill with its own border, for setting cards. */
+.dropdown.setting-select {
+  flex: none;
+  max-width: 260px;
+}
+
+.dropdown.setting-select .dropdown-trigger {
+  min-width: 180px;
+  justify-content: space-between;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--glass);
+}
+
+.dropdown.setting-select .dropdown-trigger:hover:not(:disabled),
+.dropdown.setting-select.open .dropdown-trigger {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
 .dropdown-menu {
   position: fixed;
   z-index: 200;

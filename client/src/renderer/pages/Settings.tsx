@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { Dropdown } from '../components/Dropdown';
 import { listInputs, listVirtualOutputs } from '../lib/devices';
 import { UI_LANGUAGES, useI18n, type UiLanguage } from '../lib/i18n';
 import { setPref, usePref } from '../lib/prefs';
@@ -95,17 +96,16 @@ export function Settings({ hidden }: { hidden: boolean }) {
             <h2>{t('settings.language')}</h2>
             <p className="muted">{t('settings.languageHint')}</p>
           </div>
-          <select
-            className="select"
+          <Dropdown
+            className="setting-select"
             value={language}
-            onChange={(event) => setLanguage(event.target.value as UiLanguage)}
-          >
-            {UI_LANGUAGES.map((code) => (
-              <option key={code} value={code}>
-                {LANGUAGE_NAMES[code]}
-              </option>
-            ))}
-          </select>
+            options={UI_LANGUAGES.map((code) => ({
+              value: code,
+              label: LANGUAGE_NAMES[code],
+            }))}
+            onChange={setLanguage}
+            title={t('settings.language')}
+          />
         </div>
 
         <div className="card setting-card">
@@ -115,19 +115,20 @@ export function Settings({ hidden }: { hidden: boolean }) {
               {t(state.recording ? 'settings.inputLocked' : 'settings.inputHint')}
             </p>
           </div>
-          <select
-            className="select"
+          <Dropdown
+            className="setting-select"
             value={inputValue}
+            options={[
+              { value: '', label: t('settings.inputDefault') },
+              ...inputs.map((input) => ({
+                value: input.deviceId,
+                label: input.label || input.deviceId,
+              })),
+            ]}
             disabled={state.recording}
-            onChange={(event) => setPref('inputMic', event.target.value || null)}
-          >
-            <option value="">{t('settings.inputDefault')}</option>
-            {inputs.map((input) => (
-              <option key={input.deviceId} value={input.deviceId}>
-                {input.label || input.deviceId}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setPref('inputMic', value || null)}
+            title={t('settings.input')}
+          />
         </div>
 
         <div className="card setting-card setting-column">
@@ -146,18 +147,18 @@ export function Settings({ hidden }: { hidden: boolean }) {
             <p className="muted vm-hint" hidden={!hint}>
               {hint}
             </p>
-            <select
-              className="select"
-              hidden={outputs.length < 2}
-              value={chosen || outputs[0]?.deviceId || ''}
-              onChange={(event) => setChosen(event.target.value)}
-            >
-              {outputs.map((output) => (
-                <option key={output.deviceId} value={output.deviceId}>
-                  {output.label}
-                </option>
-              ))}
-            </select>
+            {outputs.length >= 2 && (
+              <Dropdown
+                className="setting-select"
+                value={chosen || outputs[0].deviceId}
+                options={outputs.map((output) => ({
+                  value: output.deviceId,
+                  label: output.label,
+                }))}
+                onChange={setChosen}
+                title={t('settings.virtual')}
+              />
+            )}
             <button
               type="button"
               className={`primary-button${added ? ' danger' : ''}`}

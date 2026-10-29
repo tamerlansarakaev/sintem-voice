@@ -114,6 +114,17 @@ export function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+export function base64ToBytes(base64: string) {
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+// Length of a WAV from encodeWav, read from its header.
+export function wavSeconds(wav: Uint8Array) {
+  const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  const bytesPerSecond = view.getUint32(28, true);
+  return bytesPerSecond ? view.getUint32(40, true) / bytesPerSecond : 0;
+}
+
 export interface Player {
   setSampleRate(rate: number): void;
   play(data: ArrayBuffer): void;
