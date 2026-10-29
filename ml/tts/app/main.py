@@ -35,10 +35,11 @@ PHRASE_END = (",", ";", ":")
 # segment is synthesized and dropped so the first real phrase is not.
 WARMUP = object()
 WARMUP_TEXT = "Hello."
-# Edge silence of every segment is cut; the margin keeps soft word edges.
+# Edge silence of every segment is cut; the margin keeps soft word edges
+# such as a final hissing consonant.
 SILENCE_RMS = 0.01
 SILENCE_FRAME_S = 0.01
-SILENCE_MARGIN_S = 0.08
+SILENCE_MARGIN_S = 0.12
 
 logger = logging.getLogger("tts")
 
@@ -192,8 +193,7 @@ async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
             async for chunk in stream_speech(voice, with_sentence_end(text)):
                 for part in trimmer.feed(chunk):
                     await ws.send_bytes(to_pcm16(part))
-            for part in trimmer.finish():
-                await ws.send_bytes(to_pcm16(part))
+            # Whatever the trimmer still holds is trailing silence.
             await ws.send_json({"type": "segmentEnd"})
         return True
     except WebSocketDisconnect:
@@ -273,28 +273,38 @@ class EdgeSilenceTrimmer:
         self.frame = max(1, int(sample_rate * SILENCE_FRAME_S))
         self.margin = int(sample_rate * SILENCE_MARGIN_S)
         self.started = False
-        # Quiet audio after the last sound: a pause if sound follows,
-        # the trailing silence if the segment ends.
+        # Quiet audio after the last sound beyond the margin: a pause if
+        # sound follows, the trailing silence if the segment ends.
         self.held = np.zeros(0, dtype=np.float32)
+        # How much of the current quiet stretch has already been sent.
+        self.quiet_sent = 0
 
     def feed(self, chunk: np.ndarray) -> list[np.ndarray]:
         audio = np.concatenate([self.held, chunk.astype(np.float32).ravel()])
         loud = self._loud_frames(audio)
         if not loud.any():
-            self.held = audio if self.started else audio[-self.margin :]
-            return []
+            if not self.started:
+                self.held = audio[-self.margin :]
+                return []
+            return self._send_quiet(audio)
 
         first = int(np.argmax(loud)) * self.frame
         end = (len(loud) - int(np.argmax(loud[::-1]))) * self.frame
         start = 0 if self.started else max(0, first - self.margin)
         self.started = True
-        self.held = audio[end:]
-        return [audio[start:end]]
+        self.quiet_sent = 0
+        out = [audio[start:end], *self._send_quiet(audio[end:])]
+        return [np.concatenate(out)]
 
-    def finish(self) -> list[np.ndarray]:
-        tail = self.held[: self.margin] if self.started else self.held[:0]
-        self.held = self.held[:0]
-        return [tail] if len(tail) else []
+    def _send_quiet(self, quiet: np.ndarray) -> list[np.ndarray]:
+        # The start of a quiet stretch is often a soft word ending or a short
+        # pause, so it goes out at once: holding it would stall the stream
+        # in the middle of speech. Only what lies beyond the margin waits.
+        take = max(0, self.margin - self.quiet_sent)
+        out = quiet[:take]
+        self.quiet_sent += len(out)
+        self.held = quiet[take:]
+        return [out] if len(out) else []
 
     def _loud_frames(self, audio: np.ndarray) -> np.ndarray:
         count = -(-len(audio) // self.frame)

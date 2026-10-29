@@ -4,10 +4,10 @@ import { getPref } from './prefs';
 const WORKLET_URL = 'pcm-worklet.js';
 // Head start before the first chunk, against network jitter.
 const START_BUFFER_S = 0.12;
-// Head start after the queue ran dry mid-speech. Synthesis runs barely
-// faster than playback, so a bigger cushion turns the next short wait for
-// the synthesizer into no gap instead of another one.
-const REFILL_BUFFER_S = 0.3;
+// Head start after the queue ran dry mid-speech. Synthesis runs about as
+// fast as playback, so a cushion never builds up and only lengthens the
+// stall, often in the middle of a word; just enough to schedule the chunk.
+const REFILL_BUFFER_S = 0.05;
 // Mixed under the translation when "Mix original microphone" is on.
 const MIX_GAIN = 0.5;
 
