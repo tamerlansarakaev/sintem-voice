@@ -124,7 +124,7 @@ export class TranslateVoiceGateway implements OnGatewayConnection {
     };
     client.on('close', () => (finished = true));
 
-    const speech = this.tts.createSession(voice, {
+    const speech = this.tts.createSession(voice, languages.target, {
       onReady: (sampleRate) =>
         send(client, {
           type: 'audioFormat',

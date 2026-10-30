@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from nanovllm_voxcpm import VoxCPM
+from num2words import num2words
 from pydantic import BaseModel, Field
 
 MODEL_DIR = os.environ["MODEL_DIR"]
@@ -49,6 +50,16 @@ SILENCE_MARGIN_S = 0.12
 # stall, as a stray consonant. Only longer silence waits, to be cut if the
 # segment ends there.
 QUIET_SENT_S = 0.6
+# Digits are read wrong, often as another number, so numbers are spelled out
+# in the language of the text. A comma is the decimal mark except in English.
+PERCENT = {
+    "en": "percent",
+    "de": "Prozent",
+    "fr": "pour cent",
+    "es": "por ciento",
+    "ru": "процентов",
+}
+NUMBER_RE = re.compile(r"(?<![\w.,])(\d{1,2}):(\d{2})(?!\d)|(?<![\w.,])\d+(?:[.,]\d+)*(?![\w])(\s*%)?")
 
 logger = logging.getLogger("tts")
 
@@ -134,7 +145,7 @@ async def register_voice(voice_id: str, sample: VoiceSample) -> Response:
 
 
 @app.websocket("/synthesize/{voice_id}")
-async def synthesize(ws: WebSocket, voice_id: str) -> None:
+async def synthesize(ws: WebSocket, voice_id: str, lang: str = "") -> None:
     await ws.accept()
     voice = voices.get(voice_id)
     if voice is None:
@@ -153,7 +164,7 @@ async def synthesize(ws: WebSocket, voice_id: str) -> None:
     # Receiving and speaking run separately, so text keeps arriving
     # while the previous segment is being synthesized.
     segments: asyncio.Queue[str | object | None] = asyncio.Queue()
-    speaker = asyncio.create_task(speak(ws, voice, segments))
+    speaker = asyncio.create_task(speak(ws, voice, lang, segments))
     buffer: list[str] = []
     try:
         while True:
@@ -187,7 +198,9 @@ async def synthesize(ws: WebSocket, voice_id: str) -> None:
         speaker.cancel()
 
 
-async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
+async def speak(
+    ws: WebSocket, voice: Voice, lang: str, segments: asyncio.Queue
+) -> bool:
     try:
         sample_rate = state.sample_rate
         # Segments taken from the queue but not spoken yet.
@@ -203,7 +216,7 @@ async def speak(ws: WebSocket, voice: Voice, segments: asyncio.Queue) -> bool:
                 continue
             text = merge_waiting(text, segments, waiting)
             trimmer = EdgeSilenceTrimmer(sample_rate)
-            async with aclosing(stream_speech(voice, as_phrase(text))) as chunks:
+            async with aclosing(stream_speech(voice, as_phrase(text, lang))) as chunks:
                 async for chunk in chunks:
                     for part in trimmer.feed(chunk):
                         await ws.send_bytes(to_pcm16(part))
@@ -296,9 +309,32 @@ class EdgeSilenceTrimmer:
         return rms >= SILENCE_RMS
 
 
-def as_phrase(text: str) -> str:
+def as_phrase(text: str, lang: str) -> str:
+    text = spell_numbers(text, lang)
     text = text[:1].upper() + text[1:]
     return text if text.endswith(SENTENCE_END + PHRASE_END) else f"{text}."
+
+
+def spell_numbers(text: str, lang: str) -> str:
+    if lang not in PERCENT:
+        return text
+
+    def say(number: str) -> str:
+        if lang == "en":
+            number = number.replace(",", "")
+        else:
+            number = number.replace(".", "").replace(",", ".")
+        value = float(number) if "." in number else int(number)
+        return num2words(value, lang=lang)
+
+    def replace(match: re.Match[str]) -> str:
+        if match.group(1):
+            return f"{say(match.group(1))} {say(match.group(2))}"
+        sign = match.group(3) or ""
+        words = say(match.group(0)[: len(match.group(0)) - len(sign)])
+        return f"{words} {PERCENT[lang]}" if match.group(3) else words
+
+    return NUMBER_RE.sub(replace, text)
 
 
 def to_pcm16(chunk: np.ndarray) -> bytes:
