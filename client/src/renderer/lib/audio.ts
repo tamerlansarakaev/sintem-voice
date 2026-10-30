@@ -130,6 +130,9 @@ export interface Player {
   play(data: ArrayBuffer): void;
   mix(stream: MediaStream): void;
   close(): void;
+  // What the server sent as a WAV, each chunk at the moment it was scheduled
+  // to play and silence in between, or null before any audio.
+  recording(): Uint8Array | null;
 }
 
 export function createPlayer(
@@ -140,6 +143,7 @@ export function createPlayer(
   if (sinkId) audioContext.setSinkId(sinkId).catch(() => {});
   let sampleRate = 48000;
   let nextTime = 0;
+  const scheduled: { start: number; pcm: Int16Array }[] = [];
 
   return {
     setSampleRate(rate) {
@@ -160,6 +164,7 @@ export function createPlayer(
         nextTime = now + (nextTime === 0 ? START_BUFFER_S : REFILL_BUFFER_S);
       }
       source.start(nextTime);
+      scheduled.push({ start: nextTime, pcm });
       const level = chunkLevel(data);
       setTimeout(() => onLevel(level), (nextTime - now) * 1000);
       source.addEventListener('ended', () => {
@@ -177,6 +182,15 @@ export function createPlayer(
     close() {
       const left = Math.max(0, nextTime - audioContext.currentTime);
       setTimeout(() => audioContext.close(), left * 1000 + 200);
+    },
+    recording() {
+      if (scheduled.length === 0) return null;
+      const first = scheduled[0].start;
+      const offsetOf = (start: number) => Math.round((start - first) * sampleRate);
+      const last = scheduled[scheduled.length - 1];
+      const timeline = new Int16Array(offsetOf(last.start) + last.pcm.length);
+      for (const { start, pcm } of scheduled) timeline.set(pcm, offsetOf(start));
+      return encodeWav([timeline.buffer], sampleRate);
     },
   };
 }

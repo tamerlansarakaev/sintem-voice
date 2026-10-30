@@ -7,6 +7,11 @@ services:
     build: .
     ports:
       - "8200:8200"
+    environment:
+      # Fewer diffusion steps generate faster at some cost in quality.
+      INFERENCE_TIMESTEPS: ${INFERENCE_TIMESTEPS:-10}
+      # Share of GPU memory TTS takes, after what is already in use.
+      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.95}
     volumes:
       # Weights are downloaded here on first start and reused afterwards.
       # A named volume inherits /models ownership from the image, so the

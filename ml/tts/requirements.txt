@@ -1,11 +1,13 @@
 # CUDA builds of torch live on the PyTorch index, not PyPI. The +cu128
 # suffix makes pip take them from there. Keep torch, torchaudio and
-# torchcodec versions matched.
+# torchcodec versions matched, and flash-attn built for the same torch,
+# CUDA and Python (3.12).
 --extra-index-url https://download.pytorch.org/whl/cu128
 torch==2.8.0+cu128
 torchaudio==2.8.0+cu128
 torchcodec==0.7.0
-voxcpm==2.0.3
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
+nano-vllm-voxcpm==2.0.5
 huggingface-hub
 fastapi==0.115.12
 uvicorn[standard]==0.34.3

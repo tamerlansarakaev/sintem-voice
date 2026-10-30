@@ -49,6 +49,9 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
     setTarget(counterpart(language));
   }, [language]);
   const [listening, setListening] = useState(false);
+  // Debug builds: the last session's received audio, to compare with what
+  // the virtual microphone played.
+  const [received, setReceived] = useState<Uint8Array | null>(null);
   const live = useRef<Live | null>(null);
   // The connection being opened, so Stop can cancel it.
   const connecting = useRef<PendingSocket | null>(null);
@@ -109,6 +112,7 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
     }
 
     setListening(false);
+    setReceived(null);
     setControls('connecting');
 
     let pending: PendingSocket | undefined;
@@ -184,6 +188,7 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
     live.current.stopMicrophone?.();
     // Already received speech still plays to the end.
     live.current.player.close();
+    if (import.meta.env.DEV) setReceived(live.current.player.recording());
     live.current = null;
     setControls('idle');
     if (event.code !== 1000) {
@@ -294,6 +299,16 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
         />
       </div>
 
+      {received && (
+        <button
+          type="button"
+          className="ghost-button debug-download"
+          onClick={() => downloadWav(received, 'received.wav')}
+        >
+          Download received audio
+        </button>
+      )}
+
       <div className="lock-overlay" hidden={current < 0 || liveState !== 'idle'}>
         <div className="card lock-card">
           <div className="badge-icon">
@@ -326,6 +341,16 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
       </div>
     </section>
   );
+}
+
+function downloadWav(wav: Uint8Array, name: string) {
+  const url = URL.createObjectURL(new Blob([wav as BlobPart], { type: 'audio/wav' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  // Revoked later: the download reads the blob after click() returns.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 interface UnlockStepProps {
