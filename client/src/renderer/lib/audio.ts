@@ -8,6 +8,7 @@ const START_BUFFER_S = 0.12;
 // fast as playback, so a cushion never builds up and only lengthens the
 // stall, often in the middle of a word; just enough to schedule the chunk.
 const REFILL_BUFFER_S = 0.05;
+const PLAYBACK_SAMPLE_RATE = 48000;
 // Mixed under the translation when "Mix original microphone" is on.
 const MIX_GAIN = 0.5;
 
@@ -142,7 +143,7 @@ export function createPlayer(
   sinkId: string | undefined,
   onLevel: (level: number) => void,
 ): Player {
-  const audioContext = new AudioContext();
+  const audioContext = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
   if (sinkId) audioContext.setSinkId(sinkId).catch(() => {});
   let sampleRate = 48000;
   let nextTime = 0;
