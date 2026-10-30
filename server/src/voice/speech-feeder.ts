@@ -3,6 +3,13 @@ import { splitWords } from '../translation/text.js';
 // Fewer words sound unnatural: the synthesizer needs a phrase.
 const MIN_WORDS = 3;
 
+// The synthesizer ends unpunctuated text with a period and says it as a
+// finished sentence. A draft portion continues, so it gets a comma: the
+// voice stays level instead of falling after every few words.
+function asContinuing(text: string): string {
+  return /[\p{L}\p{N}]$/u.test(text) ? `${text},` : text;
+}
+
 // Turns the confirmed translation into portions for the synthesizer.
 // Text given to the synthesizer cannot be taken back, so only confirmed
 // words go there: a draft once it has MIN_WORDS new words, a finished
@@ -17,7 +24,7 @@ export class SpeechFeeder {
   draft(text: string): void {
     const words = splitWords(text);
     if (words.length - this.spoken < MIN_WORDS) return;
-    this.speak(words.slice(this.spoken).join(' '));
+    this.speak(asContinuing(words.slice(this.spoken).join(' ')));
     this.spoken = words.length;
   }
 

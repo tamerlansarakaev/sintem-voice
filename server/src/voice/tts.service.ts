@@ -27,6 +27,8 @@ export class TtsSession {
   constructor(
     private readonly baseUrl: string,
     private readonly voice: VoiceSample,
+    // Language of the text, so numbers are read in it.
+    private readonly language: string,
     private readonly handlers: TtsHandlers,
   ) {
     this.connect();
@@ -59,6 +61,7 @@ export class TtsSession {
       `/synthesize/${encodeURIComponent(this.voice.key)}`,
       this.baseUrl,
     );
+    url.searchParams.set('lang', this.language);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url);
     this.socket = socket;
@@ -168,8 +171,12 @@ export class TtsService {
     return this.baseUrl !== undefined;
   }
 
-  createSession(voice: VoiceSample, handlers: TtsHandlers): TtsSession {
+  createSession(
+    voice: VoiceSample,
+    language: string,
+    handlers: TtsHandlers,
+  ): TtsSession {
     if (!this.baseUrl) throw new Error('TTS_URL is not set');
-    return new TtsSession(this.baseUrl, voice, handlers);
+    return new TtsSession(this.baseUrl, voice, language, handlers);
   }
 }
