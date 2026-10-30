@@ -7,8 +7,6 @@ import type { UiLanguage } from './i18n';
 // `storage` event.
 export interface Prefs {
   uiLanguage: UiLanguage;
-  // A server address typed on the connection screen; wins over BACKEND_URL.
-  backendUrl: string;
   // deviceId of the input microphone; unset means the system default.
   inputMic: string;
   mixOriginal: boolean;

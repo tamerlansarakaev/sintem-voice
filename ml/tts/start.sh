@@ -1,8 +1,8 @@
 #!/bin/sh
 # Downloads the pinned model once, then runs the TTS server. Used both as
-# the Docker entrypoint and natively (with hf and uvicorn on PATH, e.g. an
-# activated venv). Paths default to the native layout; the image overrides
-# them.
+# the Docker entrypoint and natively (with hf on PATH and the requirements
+# installed for python3, or for $PYTHON). Paths default to the native
+# layout; the image overrides them.
 set -eu
 
 dir="$(cd "$(dirname "$0")" && pwd)"
@@ -25,5 +25,6 @@ fi
 
 export MODEL_DIR="$model_dir"
 cd "$dir"
+# Run as a module so it works when pip put the uvicorn script outside PATH.
 # exec makes uvicorn PID 1, so it receives the stop signal.
-exec uvicorn app.main:app --host 0.0.0.0 --port 8200
+exec "${PYTHON:-python3}" -m uvicorn app.main:app --host 0.0.0.0 --port 8200

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import logo from '../assets/logo.png';
 import { OfflineScreen } from '../components/OfflineScreen';
 import { Sidebar } from '../components/Sidebar';
 import { useI18n } from '../lib/i18n';
@@ -91,11 +92,7 @@ function Splash({ visible }: { visible: boolean }) {
         if (!visible && event.target === event.currentTarget) setRemoved(true);
       }}
     >
-      <div className="logo logo-large">
-        <svg viewBox="0 0 24 24">
-          <path d="M5 10v4M8.5 7v10M12 4v16M15.5 8v8M19 10.5v3" />
-        </svg>
-      </div>
+      <img className="logo logo-large" src={logo} alt="" />
       <div className="splash-title">Sintem Voice</div>
       <div className="splash-subtitle">{t('splash.opening')}</div>
     </div>

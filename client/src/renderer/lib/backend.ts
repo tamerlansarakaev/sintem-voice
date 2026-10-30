@@ -1,11 +1,8 @@
-import { getPref } from './prefs';
-
 const HEALTH_TIMEOUT_MS = 4000;
 const CONNECT_TIMEOUT_MS = 10_000;
 
-// A server address typed on the connection screen wins over BACKEND_URL.
-export async function backendUrl() {
-  return getPref('backendUrl') || (await window.config.getBackendUrl());
+export function backendUrl() {
+  return window.config.getBackendUrl();
 }
 
 // BACKEND_URL is http(s)://host[:port]; sockets use ws(s) on the same host.

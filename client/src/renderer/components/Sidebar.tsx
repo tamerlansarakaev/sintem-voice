@@ -1,5 +1,6 @@
 import { useRef, type MouseEvent, type ReactNode } from 'react';
 
+import logo from '../assets/logo.png';
 import { useI18n } from '../lib/i18n';
 import type { StringKey } from '../lib/strings';
 import type { Page } from '../main/pages';
@@ -40,10 +41,8 @@ function NavLink({ page, current, label, children }: NavLinkProps) {
 export function Sidebar({ current }: { current: Page }) {
   return (
     <nav className="sidebar">
-      <div className="logo sidebar-logo">
-        <svg viewBox="0 0 24 24">
-          <path d="M5 10v4M8.5 7v10M12 4v16M15.5 8v8M19 10.5v3" />
-        </svg>
+      <div className="sidebar-logo">
+        <img className="logo" src={logo} alt="Sintem Voice" />
       </div>
       <div className="nav-list">
         <NavLink page="voice-translation" current={current} label="nav.translation">

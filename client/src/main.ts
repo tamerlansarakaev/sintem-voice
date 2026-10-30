@@ -16,15 +16,6 @@ import started from 'electron-squirrel-startup';
 
 import type { VoiceSample } from './shared/api';
 
-// client/.env is optional; see .env.example.
-try {
-  process.loadEnvFile(path.join(app.getAppPath(), '.env'));
-} catch {
-  // No .env, fall back to defaults.
-}
-
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3000';
-
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();

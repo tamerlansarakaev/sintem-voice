@@ -4,9 +4,7 @@ import { getPref } from './prefs';
 const WORKLET_URL = 'pcm-worklet.js';
 // Head start before the first chunk, against network jitter.
 const START_BUFFER_S = 0.12;
-// Head start after the queue ran dry mid-speech. Synthesis runs about as
-// fast as playback, so a cushion never builds up and only lengthens the
-// stall, often in the middle of a word; just enough to schedule the chunk.
+// Head start after the queue ran dry mid-speech.
 const REFILL_BUFFER_S = 0.05;
 const PLAYBACK_SAMPLE_RATE = 48000;
 // Mixed under the translation when "Mix original microphone" is on.
@@ -38,10 +36,7 @@ export async function streamPcm(
   return audioContext;
 }
 
-// Streams the microphone as mono s16le PCM chunks at `sampleRate`.
-// Browser processing is off: it colours the voice, and the server and the
-// voice sample should hear the same raw microphone. Uses the microphone
-// chosen in Settings.
+// Streams the microphone chosen in Settings as mono s16le PCM chunks.
 export async function startMicrophone(
   sampleRate: number,
   onChunk: (chunk: ArrayBuffer) => void,
@@ -137,8 +132,6 @@ export interface Player {
   close(): void;
 }
 
-// Plays s16le mono chunks back to back in the order they arrive and
-// reports each chunk's level when it starts playing.
 export function createPlayer(
   sinkId: string | undefined,
   onLevel: (level: number) => void,
