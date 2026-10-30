@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    MODELS_DIR=/models
+    MODELS_DIR=/models \
+    PYTHON=python
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg gcc libc6-dev \

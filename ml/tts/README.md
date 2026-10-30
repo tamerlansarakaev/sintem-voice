@@ -27,13 +27,15 @@ docker compose up -d --build
 
 ## Without Docker
 
-Run from `ml/tts/`:
+Needs Python 3.12. Run from `ml/tts/`:
 
 ```bash
 apt-get install -y ffmpeg
-python3 -m pip install -r requirements.txt
 ./start.sh
 ```
+
+On first start `start.sh` installs the requirements into `ml/tts/.venv`,
+or into `$VENV` if set.
 
 ## Check
 

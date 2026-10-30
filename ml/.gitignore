@@ -6,3 +6,6 @@ translate/llama.cpp/
 
 # Per-machine compose settings (PARALLEL, CTX_SIZE).
 .env
+
+# The venv tts/start.sh installs into.
+tts/.venv
