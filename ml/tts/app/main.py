@@ -1,9 +1,11 @@
 import asyncio
 import base64
 import binascii
+import io
 import logging
 import os
 import re
+import wave
 from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import aclosing, asynccontextmanager
@@ -18,7 +20,11 @@ from pydantic import BaseModel, Field
 MODEL_DIR = os.environ["MODEL_DIR"]
 # Share of GPU memory the engine takes, counting what other processes on the
 # GPU already use: they must be started first.
-GPU_MEMORY_UTILIZATION = float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.95"))
+GPU_MEMORY_UTILIZATION = float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.75"))
+# Seconds of this session's own speech kept after the voice sample in the
+# prompt, so each portion continues the previous one instead of starting a
+# new phrase. 0 turns it off.
+HISTORY_S = float(os.environ.get("TTS_HISTORY_S", "10"))
 # Diffusion steps per generated frame. Fewer is faster at some cost in
 # voice quality; generation must outpace playback or the audio stalls.
 INFERENCE_TIMESTEPS = int(os.environ.get("INFERENCE_TIMESTEPS", "10"))
@@ -205,23 +211,41 @@ async def speak(
         sample_rate = state.sample_rate
         # Segments taken from the queue but not spoken yet.
         waiting: deque[str | object | None] = deque()
+        # The latest speech of this session, oldest first.
+        history: deque[Spoken] = deque()
         while True:
             text = waiting.popleft() if waiting else await segments.get()
             if text is None:
                 break
             if text is WARMUP:
-                async with aclosing(stream_speech(voice, WARMUP_TEXT)) as chunks:
+                async with aclosing(
+                    stream_speech(voice, WARMUP_TEXT, voice.text, voice.latents)
+                ) as chunks:
                     async for _ in chunks:
                         pass
                 continue
             text = merge_waiting(text, segments, waiting)
+            # A continuation keeps its own case: it follows speech in the
+            # same language, not the voice sample's text.
+            text = (
+                with_sentence_end(spell_numbers(text, lang))
+                if history
+                else as_phrase(text, lang)
+            )
             trimmer = EdgeSilenceTrimmer(sample_rate)
-            async with aclosing(stream_speech(voice, as_phrase(text, lang))) as chunks:
+            sent: list[np.ndarray] = []
+            prompt_text = " ".join([voice.text, *(h.text for h in history)])
+            prompt_latents = voice.latents + b"".join(h.latents for h in history)
+            async with aclosing(
+                stream_speech(voice, text, prompt_text, prompt_latents)
+            ) as chunks:
                 async for chunk in chunks:
                     for part in trimmer.feed(chunk):
+                        sent.append(part)
                         await ws.send_bytes(to_pcm16(part))
             # Whatever the trimmer still holds is trailing silence.
             await ws.send_json({"type": "segmentEnd"})
+            await remember(history, text, sent)
         return True
     except WebSocketDisconnect:
         return False
@@ -250,13 +274,33 @@ def merge_waiting(text: str, segments: asyncio.Queue, waiting: deque) -> str:
         text = f"{text} {waiting.popleft()}"
 
 
-async def stream_speech(voice: Voice, text: str) -> AsyncIterator[np.ndarray]:
+@dataclass
+class Spoken:
+    text: str
+    latents: bytes
+    seconds: float
+
+
+async def remember(history: deque[Spoken], text: str, sent: list[np.ndarray]) -> None:
+    if HISTORY_S <= 0 or not sent:
+        return
+    sample_rate = state.sample_rate
+    audio = np.concatenate(sent)
+    latents = await state.pool.encode_latents(to_wav(audio, sample_rate), "wav")
+    history.append(Spoken(text, latents, len(audio) / sample_rate))
+    while sum(h.seconds for h in history) > HISTORY_S:
+        history.popleft()
+
+
+async def stream_speech(
+    voice: Voice, text: str, prompt_text: str, prompt_latents: bytes
+) -> AsyncIterator[np.ndarray]:
     text = " ".join(text.split())
     # Leaving early cancels the generation and frees its slot.
     async for chunk in state.pool.generate(
         target_text=text,
-        prompt_latents=voice.latents,
-        prompt_text=voice.text,
+        prompt_latents=prompt_latents,
+        prompt_text=prompt_text,
         ref_audio_latents=voice.latents,
         max_generate_length=max(MIN_STEPS, len(text) * STEPS_PER_CHAR),
         temperature=1.0,
@@ -311,7 +355,10 @@ class EdgeSilenceTrimmer:
 
 def as_phrase(text: str, lang: str) -> str:
     text = spell_numbers(text, lang)
-    text = text[:1].upper() + text[1:]
+    return with_sentence_end(text[:1].upper() + text[1:])
+
+
+def with_sentence_end(text: str) -> str:
     return text if text.endswith(SENTENCE_END + PHRASE_END) else f"{text}."
 
 
@@ -335,6 +382,16 @@ def spell_numbers(text: str, lang: str) -> str:
         return f"{words} {PERCENT[lang]}" if match.group(3) else words
 
     return NUMBER_RE.sub(replace, text)
+
+
+def to_wav(audio: np.ndarray, sample_rate: int) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as file:
+        file.setnchannels(1)
+        file.setsampwidth(2)
+        file.setframerate(sample_rate)
+        file.writeframes(to_pcm16(audio))
+    return buffer.getvalue()
 
 
 def to_pcm16(chunk: np.ndarray) -> bytes:

@@ -11,7 +11,9 @@ services:
       # Fewer diffusion steps generate faster at some cost in quality.
       INFERENCE_TIMESTEPS: ${INFERENCE_TIMESTEPS:-10}
       # Share of GPU memory TTS takes, after what is already in use.
-      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.95}
+      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.75}
+      # Seconds of earlier speech each portion continues; 0 turns it off.
+      TTS_HISTORY_S: ${TTS_HISTORY_S:-10}
     volumes:
       # Weights are downloaded here on first start and reused afterwards.
       # A named volume inherits /models ownership from the image, so the
