@@ -18,46 +18,32 @@ from num2words import num2words
 from pydantic import BaseModel, Field
 
 MODEL_DIR = os.environ["MODEL_DIR"]
-# Share of GPU memory the engine takes, counting what other processes on the
-# GPU already use: they must be started first.
+# Counts memory other GPU processes already use.
 GPU_MEMORY_UTILIZATION = float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.75"))
-# Seconds of this session's own speech kept after the voice sample in the
-# prompt, so each portion continues the previous one instead of starting a
-# new phrase. 0 turns it off.
+# Seconds of earlier session speech each portion continues; 0 turns it off.
 HISTORY_S = float(os.environ.get("TTS_HISTORY_S", "10"))
-# Diffusion steps per generated frame. Fewer is faster at some cost in
-# voice quality; generation must outpace playback or the audio stalls.
+# Fewer steps: faster, lower voice quality.
 INFERENCE_TIMESTEPS = int(os.environ.get("INFERENCE_TIMESTEPS", "10"))
 
-# The buffer is spoken after this much time without new text.
 FLUSH_IDLE_S = 0.5
-# Queued segments are merged into one generation up to this length; longer
-# text would delay the first audio and strain the model.
 MAX_MERGED_CHARS = 300
 MAX_VOICE_WAV_BYTES = 2 * 1024 * 1024
 MAX_VOICE_TEXT_CHARS = 2000
 VOICE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
-# Without final punctuation the model tends to cut off the last word.
+# Without final punctuation the model cuts off the last word.
 SENTENCE_END = (".", "!", "?", "…")
-# A text the backend marks as continuing ends with one of these; it keeps
-# them, so the voice does not fall as at the end of a sentence.
+# Kept on continuing text so the voice does not fall.
 PHRASE_END = (",", ";", ":")
-# After idle the first generation is about a second slower; a warmup
-# segment is synthesized and dropped so the first real phrase is not.
+# Synthesized and dropped: the first generation after idle is slower.
 WARMUP = object()
 WARMUP_TEXT = "Hello."
-# Edge silence of every segment is cut; the margin keeps soft word edges
-# such as a final hissing consonant.
+# The margin keeps soft word edges when cutting edge silence.
 SILENCE_RMS = 0.01
 SILENCE_FRAME_S = 0.01
 SILENCE_MARGIN_S = 0.12
-# Quiet after a sound goes out at once up to this length. It is often a soft
-# word ending, and holding it back until the next sound plays it after a
-# stall, as a stray consonant. Only longer silence waits, to be cut if the
-# segment ends there.
+# Quiet up to this long is sent at once: it is often a soft word ending.
 QUIET_SENT_S = 0.6
-# Digits are read wrong, often as another number, so numbers are spelled out
-# in the language of the text. A comma is the decimal mark except in English.
+# Digits are often misread, so numbers are spelled out.
 PERCENT = {
     "en": "percent",
     "de": "Prozent",
@@ -70,8 +56,7 @@ NUMBER_RE = re.compile(r"(?<![\w.,])(\d{1,2}):(\d{2})(?!\d)|(?<![\w.,])\d+(?:[.,
 logger = logging.getLogger("tts")
 
 
-# A patch of generated audio is 0.16 s. The model stops at the end of the
-# speech; this only bounds a generation that does not stop.
+# Bounds a generation that does not stop; a step is 0.16 s.
 STEPS_PER_CHAR = 1
 MIN_STEPS = 40
 
@@ -88,16 +73,12 @@ class EngineState:
 
 
 state = EngineState()
-# Voices live only in memory. After a restart the backend gets
-# voice_not_registered and registers the voice again.
+# In memory only; after a restart the backend registers voices again.
 voices: dict[str, Voice] = {}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # The server accepts requests only after this, and a failed load stops
-    # the process, so handlers can rely on the model being there. The engine
-    # batches concurrent generations; one session needs only a few slots.
     pool = VoxCPM.from_pretrained(
         MODEL_DIR,
         inference_timesteps=INFERENCE_TIMESTEPS,
@@ -167,8 +148,6 @@ async def synthesize(ws: WebSocket, voice_id: str, lang: str = "") -> None:
         }
     )
 
-    # Receiving and speaking run separately, so text keeps arriving
-    # while the previous segment is being synthesized.
     segments: asyncio.Queue[str | object | None] = asyncio.Queue()
     speaker = asyncio.create_task(speak(ws, voice, lang, segments))
     buffer: list[str] = []
@@ -209,9 +188,7 @@ async def speak(
 ) -> bool:
     try:
         sample_rate = state.sample_rate
-        # Segments taken from the queue but not spoken yet.
         waiting: deque[str | object | None] = deque()
-        # The latest speech of this session, oldest first.
         history: deque[Spoken] = deque()
         while True:
             text = waiting.popleft() if waiting else await segments.get()
@@ -225,8 +202,7 @@ async def speak(
                         pass
                 continue
             text = merge_waiting(text, segments, waiting)
-            # A continuation keeps its own case: it follows speech in the
-            # same language, not the voice sample's text.
+            # A continuation keeps its case.
             text = (
                 with_sentence_end(spell_numbers(text, lang))
                 if history
@@ -243,7 +219,6 @@ async def speak(
                     for part in trimmer.feed(chunk):
                         sent.append(part)
                         await ws.send_bytes(to_pcm16(part))
-            # Whatever the trimmer still holds is trailing silence.
             await ws.send_json({"type": "segmentEnd"})
             await remember(history, text, sent)
         return True
@@ -257,9 +232,7 @@ async def speak(
 
 
 def merge_waiting(text: str, segments: asyncio.Queue, waiting: deque) -> str:
-    # Every generation pays a fixed start-up cost. Segments that arrived
-    # while the previous one was spoken are said as one generation instead,
-    # up to MAX_MERGED_CHARS. Anything else stays queued in order.
+    # Segments queued meanwhile are spoken as one generation.
     while True:
         if not waiting:
             try:
@@ -296,7 +269,6 @@ async def stream_speech(
     voice: Voice, text: str, prompt_text: str, prompt_latents: bytes
 ) -> AsyncIterator[np.ndarray]:
     text = " ".join(text.split())
-    # Leaving early cancels the generation and frees its slot.
     async for chunk in state.pool.generate(
         target_text=text,
         prompt_latents=prompt_latents,
@@ -315,10 +287,8 @@ class EdgeSilenceTrimmer:
         self.margin = int(sample_rate * SILENCE_MARGIN_S)
         self.quiet_limit = int(sample_rate * QUIET_SENT_S)
         self.started = False
-        # Quiet audio after the last sound beyond QUIET_SENT_S: a pause if
-        # sound follows, the trailing silence if the segment ends.
+        # Quiet beyond QUIET_SENT_S: a pause or the trailing silence.
         self.held = np.zeros(0, dtype=np.float32)
-        # How much of the current quiet stretch has already been sent.
         self.quiet_sent = 0
 
     def feed(self, chunk: np.ndarray) -> list[np.ndarray]:
