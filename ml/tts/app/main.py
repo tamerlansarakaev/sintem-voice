@@ -210,8 +210,10 @@ async def speak(
             )
             trimmer = EdgeSilenceTrimmer(sample_rate)
             sent: list[np.ndarray] = []
-            prompt_text = " ".join([voice.text, *(h.text for h in history)])
-            prompt_latents = voice.latents + b"".join(h.latents for h in history)
+            # The sample gives only the timbre: continuing it would carry its
+            # language into the speech. Only this session's speech is continued.
+            prompt_text = " ".join(h.text for h in history)
+            prompt_latents = b"".join(h.latents for h in history) or None
             async with aclosing(
                 stream_speech(voice, text, prompt_text, prompt_latents)
             ) as chunks:
@@ -266,7 +268,7 @@ async def remember(history: deque[Spoken], text: str, sent: list[np.ndarray]) ->
 
 
 async def stream_speech(
-    voice: Voice, text: str, prompt_text: str, prompt_latents: bytes
+    voice: Voice, text: str, prompt_text: str, prompt_latents: bytes | None
 ) -> AsyncIterator[np.ndarray]:
     text = " ".join(text.split())
     async for chunk in state.pool.generate(
