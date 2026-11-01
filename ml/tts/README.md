@@ -12,10 +12,12 @@ and is reused afterwards: into the `tts-models` volume in Docker, into
 `ml/models/tts/` without it. The server answers only once the model is
 loaded.
 
-TTS takes `GPU_MEMORY_UTILIZATION` (default 0.95) of the GPU memory,
+TTS takes `GPU_MEMORY_UTILIZATION` (default 0.75) of the GPU memory,
 counting what other processes already use. Start the translate service
 first when both share a GPU. `INFERENCE_TIMESTEPS` (default 10) trades
-voice quality for speed.
+voice quality for speed. `TTS_HISTORY_S` (default 10) is how many seconds
+of the session's earlier speech each new portion continues, so a sentence
+spoken in parts keeps its flow; 0 turns it off.
 
 ## Docker
 
