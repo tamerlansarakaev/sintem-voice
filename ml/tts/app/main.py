@@ -62,6 +62,7 @@ MIN_STEPS = 40
 
 TEMPERATURE = 0.7
 FIRST_TEMPERATURE = 1.0
+CFG_VALUE = 2.5
 
 
 @dataclass
@@ -281,7 +282,7 @@ async def stream_speech(
         ref_audio_latents=voice.latents,
         max_generate_length=max(MIN_STEPS, len(text) * STEPS_PER_CHAR),
         temperature=TEMPERATURE if prompt_latents else FIRST_TEMPERATURE,
-        cfg_value=2.0,
+        cfg_value=CFG_VALUE,
     ):
         yield np.asarray(chunk, dtype=np.float32).ravel()
 
