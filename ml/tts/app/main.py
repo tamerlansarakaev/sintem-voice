@@ -60,6 +60,9 @@ logger = logging.getLogger("tts")
 STEPS_PER_CHAR = 1
 MIN_STEPS = 40
 
+TEMPERATURE = 0.7
+FIRST_TEMPERATURE = 1.0
+
 
 @dataclass
 class Voice:
@@ -277,7 +280,7 @@ async def stream_speech(
         prompt_text=prompt_text,
         ref_audio_latents=voice.latents,
         max_generate_length=max(MIN_STEPS, len(text) * STEPS_PER_CHAR),
-        temperature=1.0,
+        temperature=TEMPERATURE if prompt_latents else FIRST_TEMPERATURE,
         cfg_value=2.0,
     ):
         yield np.asarray(chunk, dtype=np.float32).ravel()
