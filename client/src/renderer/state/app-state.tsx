@@ -9,14 +9,16 @@ import {
   type ReactNode,
 } from 'react';
 
+import type { VoiceSample } from '../../shared/api';
 import { backendUrl, checkServer } from '../lib/backend';
-import { findVirtualOutput } from '../lib/devices';
+import { listDevices } from '../lib/devices';
 
 // State the main window pages share. Each page owns some fields and the
 // others react to them.
 export interface AppState {
   online: boolean;
-  hasVoice: boolean;
+  voice: VoiceSample | null;
+  inputs: MediaDeviceInfo[];
   // The output of the installed virtual microphone, or null.
   virtualMic: MediaDeviceInfo | null;
   // A microphone is in use; the input device cannot change.
@@ -28,8 +30,8 @@ interface AppStateContext {
   update(patch: Partial<AppState>): void;
   // Checks the server now; concurrent calls share one check.
   refreshHealth(): Promise<boolean>;
-  // Looks the virtual microphone up again and returns it.
-  refreshVirtualMic(): Promise<MediaDeviceInfo | null>;
+  // Lists the devices again and returns the virtual microphone.
+  refreshDevices(): Promise<MediaDeviceInfo | null>;
 }
 
 const Context = createContext<AppStateContext | null>(null);
@@ -37,7 +39,8 @@ const Context = createContext<AppStateContext | null>(null);
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
     online: true,
-    hasVoice: false,
+    voice: null,
+    inputs: [],
     virtualMic: null,
     recording: false,
   });
@@ -60,33 +63,31 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return checking.current;
   }, [update]);
 
-  const refreshVirtualMic = useCallback(
+  const refreshDevices = useCallback(
     () =>
-      findVirtualOutput().then((virtualMic) => {
-        update({ virtualMic });
-        return virtualMic;
+      listDevices().then((devices) => {
+        update(devices);
+        return devices.virtualMic;
       }),
     [update],
   );
 
   useEffect(() => {
-    const refresh = () => void refreshVirtualMic();
+    const refresh = () => void refreshDevices();
     refresh();
     navigator.mediaDevices.addEventListener('devicechange', refresh);
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', refresh);
     };
-  }, [refreshVirtualMic]);
+  }, [refreshDevices]);
 
   useEffect(() => {
-    window.voice.load().then((voice) => {
-      if (voice) update({ hasVoice: true });
-    });
+    window.voice.load().then((voice) => update({ voice }));
   }, [update]);
 
   const value = useMemo(
-    () => ({ state, update, refreshHealth, refreshVirtualMic }),
-    [state, update, refreshHealth, refreshVirtualMic],
+    () => ({ state, update, refreshHealth, refreshDevices }),
+    [state, update, refreshHealth, refreshDevices],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

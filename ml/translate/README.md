@@ -19,7 +19,7 @@ Needs the NVIDIA Container Toolkit on the host.
 docker compose up -d --build
 ```
 
-With other settings:
+With other settings, from the shell or from `.env` (`cp .env.example .env`):
 
 ```bash
 PARALLEL=2 CTX_SIZE=8192 docker compose up -d --build
@@ -35,7 +35,8 @@ Needs a CUDA toolkit with `nvcc`. Run from `ml/translate/`:
 ```
 
 `setup.sh` builds llama-server once and creates `.env`; edit `.env` to
-change the settings.
+change the settings. Variables set in the shell win over `.env`. After the
+tag in the `Dockerfile` changes, `setup.sh` builds the new version.
 
 ## Check
 

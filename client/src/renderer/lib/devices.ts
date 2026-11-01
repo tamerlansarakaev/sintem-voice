@@ -9,28 +9,27 @@ const isVirtualMic = (device: MediaDeviceInfo) =>
 // The driver exists only for macOS.
 export const VIRTUAL_MIC_SUPPORTED = window.config.platform === 'darwin';
 
-// Microphones to speak into; the virtual microphone's input would loop the
-// translation back in.
-export async function listInputs() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices.filter(
-    (device) =>
-      device.kind === 'audioinput' &&
-      device.deviceId !== 'default' &&
-      !isVirtualMic(device),
-  );
+export interface Devices {
+  // Microphones to speak into; the virtual microphone's input would loop
+  // the translation back in.
+  inputs: MediaDeviceInfo[];
+  // The output side of the installed virtual microphone: whatever plays
+  // into it becomes the microphone's input. null when the driver is not
+  // installed.
+  virtualMic: MediaDeviceInfo | null;
 }
 
-// The output side of the installed virtual microphone: whatever plays into
-// it becomes the microphone's input. null when the driver is not installed.
-export async function findVirtualOutput() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return (
-    devices.find(
-      (device) =>
-        device.kind === 'audiooutput' &&
-        device.deviceId !== 'default' &&
-        isVirtualMic(device),
-    ) ?? null
+export async function listDevices(): Promise<Devices> {
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+    (device) => device.deviceId !== 'default',
   );
+  return {
+    inputs: devices.filter(
+      (device) => device.kind === 'audioinput' && !isVirtualMic(device),
+    ),
+    virtualMic:
+      devices.find(
+        (device) => device.kind === 'audiooutput' && isVirtualMic(device),
+      ) ?? null,
+  };
 }

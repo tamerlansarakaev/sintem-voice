@@ -10,22 +10,27 @@ const PLAYBACK_SAMPLE_RATE = 48000;
 // Mixed under the translation when "Mix original microphone" is on.
 const MIX_GAIN = 0.5;
 
-export interface Microphone {
+export interface PcmCapture {
   stop(): void;
   stream: MediaStream;
 }
 
+export function stopStream(stream: MediaStream) {
+  stream.getTracks().forEach((track) => track.stop());
+}
+
 // Posts mono s16le PCM chunks of `stream` at `sampleRate`.
-export async function streamPcm(
+export async function capturePcm(
   stream: MediaStream,
   sampleRate: number,
   onChunk: (chunk: ArrayBuffer) => void,
-) {
+): Promise<PcmCapture> {
   const audioContext = new AudioContext({ sampleRate });
   try {
     await audioContext.audioWorklet.addModule(WORKLET_URL);
   } catch (err) {
     audioContext.close();
+    stopStream(stream);
     throw err;
   }
   const worklet = new AudioWorkletNode(audioContext, 'pcm-worklet', {
@@ -33,14 +38,19 @@ export async function streamPcm(
   });
   worklet.port.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => onChunk(data);
   audioContext.createMediaStreamSource(stream).connect(worklet);
-  return audioContext;
+
+  const stop = () => {
+    stopStream(stream);
+    audioContext.close();
+  };
+  return { stop, stream };
 }
 
 // Streams the microphone chosen in Settings as mono s16le PCM chunks.
 export async function startMicrophone(
   sampleRate: number,
   onChunk: (chunk: ArrayBuffer) => void,
-): Promise<Microphone> {
+): Promise<PcmCapture> {
   const deviceId = getPref('inputMic');
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -51,19 +61,7 @@ export async function startMicrophone(
       autoGainControl: false,
     },
   });
-  let audioContext: AudioContext;
-  try {
-    audioContext = await streamPcm(stream, sampleRate, onChunk);
-  } catch (err) {
-    stream.getTracks().forEach((track) => track.stop());
-    throw err;
-  }
-
-  const stop = () => {
-    stream.getTracks().forEach((track) => track.stop());
-    audioContext.close();
-  };
-  return { stop, stream };
+  return capturePcm(stream, sampleRate, onChunk);
 }
 
 // Loudness of an s16le chunk, 0..1, scaled for the wave animation.
@@ -130,20 +128,24 @@ export interface Player {
   play(data: ArrayBuffer): void;
   mix(stream: MediaStream): void;
   close(): void;
-  // What the server sent as a WAV, each chunk at the moment it was scheduled
-  // to play and silence in between, or null before any audio.
-  recording(): Uint8Array | null;
 }
 
-export function createPlayer(
+export async function createPlayer(
   sinkId: string | undefined,
   onLevel: (level: number) => void,
-): Player {
+): Promise<Player> {
   const audioContext = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
-  if (sinkId) audioContext.setSinkId(sinkId).catch(() => {});
-  let sampleRate = 48000;
+  if (sinkId) {
+    try {
+      await audioContext.setSinkId(sinkId);
+    } catch (err) {
+      audioContext.close();
+      throw err;
+    }
+  }
+  let sampleRate = PLAYBACK_SAMPLE_RATE;
   let nextTime = 0;
-  const scheduled: { start: number; pcm: Int16Array }[] = [];
+  let closed = false;
 
   return {
     setSampleRate(rate) {
@@ -164,7 +166,6 @@ export function createPlayer(
         nextTime = now + (nextTime === 0 ? START_BUFFER_S : REFILL_BUFFER_S);
       }
       source.start(nextTime);
-      scheduled.push({ start: nextTime, pcm });
       const level = chunkLevel(data);
       setTimeout(() => onLevel(level), (nextTime - now) * 1000);
       source.addEventListener('ended', () => {
@@ -180,17 +181,10 @@ export function createPlayer(
       gain.connect(audioContext.destination);
     },
     close() {
+      if (closed) return;
+      closed = true;
       const left = Math.max(0, nextTime - audioContext.currentTime);
       setTimeout(() => audioContext.close(), left * 1000 + 200);
-    },
-    recording() {
-      if (scheduled.length === 0) return null;
-      const first = scheduled[0].start;
-      const offsetOf = (start: number) => Math.round((start - first) * sampleRate);
-      const last = scheduled[scheduled.length - 1];
-      const timeline = new Int16Array(offsetOf(last.start) + last.pcm.length);
-      for (const { start, pcm } of scheduled) timeline.set(pcm, offsetOf(start));
-      return encodeWav([timeline.buffer], sampleRate);
     },
   };
 }

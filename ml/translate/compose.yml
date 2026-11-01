@@ -8,12 +8,12 @@ services:
     ports:
       - "8100:8100"
     environment:
-      # The model is pinned in start.sh.
+      # The model and the defaults are in start.sh; empty takes the default.
       # Concurrent requests. CTX_SIZE is split between them, so each
-      # request gets CTX_SIZE / PARALLEL tokens. Override from the shell:
-      # PARALLEL=2 CTX_SIZE=8192 docker compose up -d --build
-      PARALLEL: ${PARALLEL:-1}
-      CTX_SIZE: ${CTX_SIZE:-4096}
+      # request gets CTX_SIZE / PARALLEL tokens. Override from .env or the
+      # shell: PARALLEL=2 CTX_SIZE=8192 docker compose up -d --build
+      PARALLEL: ${PARALLEL:-}
+      CTX_SIZE: ${CTX_SIZE:-}
     volumes:
       # Weights are downloaded here on first start and reused afterwards.
       # Same folder as native runs use.

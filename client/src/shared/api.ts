@@ -1,3 +1,16 @@
+export const IPC = {
+  subtitlesOpen: 'subtitles:open',
+  subtitlesClosed: 'subtitles:closed',
+  windowMinimize: 'window:minimize',
+  windowToggleMaximize: 'window:toggle-maximize',
+  windowClose: 'window:close',
+  backendUrl: 'config:backend-url',
+  voiceLoad: 'voice:load',
+  voiceSave: 'voice:save',
+  virtualMicInstall: 'virtual-mic:install',
+  virtualMicUninstall: 'virtual-mic:uninstall',
+} as const;
+
 // The voice sample: the text read aloud and a base64 16-bit mono WAV.
 export interface VoiceSample {
   text: string;

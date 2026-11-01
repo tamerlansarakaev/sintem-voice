@@ -732,11 +732,6 @@ html:not(.platform-darwin) .page-header {
 }
 
 /* Floating control bar shared by both voice pages. */
-.debug-download {
-  align-self: center;
-  margin-top: 16px;
-}
-
 .dock {
   position: relative;
   display: flex;

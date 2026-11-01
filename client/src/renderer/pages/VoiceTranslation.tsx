@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Dropdown } from '../components/Dropdown';
+import { LockIcon, MicIcon } from '../components/icons';
 import { chunkLevel, createPlayer, startMicrophone, type Player } from '../lib/audio';
-import { connect, socketUrl, type PendingSocket } from '../lib/backend';
+import {
+  closeReason,
+  connect,
+  endStream,
+  onServerMessage,
+  sendIfOpen,
+  socketUrl,
+  type PendingSocket,
+} from '../lib/backend';
 import { createBars, type Bars } from '../lib/canvas';
 import { useI18n } from '../lib/i18n';
-import { counterpart, languageOptions, type Language } from '../lib/languages';
+import { counterpart, languageOptions, useLanguagePair } from '../lib/languages';
 import { getPref } from '../lib/prefs';
 import type { StringKey } from '../lib/strings';
 import { useAppState } from '../state/app-state';
@@ -26,6 +35,7 @@ interface Live {
   socket: WebSocket;
   player: Player;
   stopMicrophone: (() => void) | null;
+  ending: boolean;
 }
 
 type ServerEvent =
@@ -34,27 +44,20 @@ type ServerEvent =
   | { type: 'error'; message: string };
 
 export function VoiceTranslation({ hidden }: { hidden: boolean }) {
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const toast = useToast();
   const { state: app, update, refreshHealth } = useAppState();
-  // You speak the app's language, others hear English (or Russian).
-  const [source, setSource] = useState<Language>(language);
-  const [target, setTarget] = useState<Language>(counterpart(language));
   const [liveState, setLiveState] = useState<LiveState>('idle');
-
-  // When the app language changes in Settings, the pair switches to it.
-  useEffect(() => {
-    if (liveState !== 'idle') return;
-    setSource(language);
-    setTarget(counterpart(language));
-  }, [language]);
+  // You speak the app's language, others hear English (or Russian).
+  const { source, target, setSource, setTarget, swap } = useLanguagePair(
+    (language) => [language, counterpart(language)],
+    liveState !== 'idle',
+  );
   const [listening, setListening] = useState(false);
-  // Debug builds: the last session's received audio, to compare with what
-  // the virtual microphone played.
-  const [received, setReceived] = useState<Uint8Array | null>(null);
   const live = useRef<Live | null>(null);
   // The connection being opened, so Stop can cancel it.
   const connecting = useRef<PendingSocket | null>(null);
+  const starting = useRef(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const bars = useRef<Bars | null>(null);
@@ -85,7 +88,7 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
   // Why Start cannot run right now, or null.
   function blocker(): StringKey | null {
     if (!app.virtualMic) return 'translation.noMic';
-    if (!app.hasVoice) return 'translation.noVoice';
+    if (!app.voice) return 'translation.noVoice';
     if (!app.online) return 'translation.offline';
     return null;
   }
@@ -100,24 +103,25 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
   }
 
   async function startLive() {
-    if (blocker()) return;
-    const voice = await window.voice.load();
-    if (!voice) {
-      update({ hasVoice: false });
-      return;
-    }
+    const { voice } = app;
+    if (!voice || blocker() || starting.current) return;
     if (source === target) {
       toast(t('translation.sameLanguages'), 'error');
       return;
     }
 
+    starting.current = true;
     setListening(false);
-    setReceived(null);
     setControls('connecting');
 
     let pending: PendingSocket | undefined;
     let socket: WebSocket | undefined;
+    let player: Player | undefined;
     try {
+      // Before connecting: the first audio may come right after the socket opens.
+      player = await createPlayer(app.virtualMic?.deviceId, (level) =>
+        bars.current?.setOutputLevel(level),
+      );
       pending = connect(await socketUrl('/translate-voice', { source, target }));
       connecting.current = pending;
       try {
@@ -128,39 +132,33 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
       const opened = socket;
       // The server keeps no voices: the sample goes first in every session.
       opened.send(JSON.stringify({ type: 'voice', ...voice }));
-      const player = createPlayer(app.virtualMic?.deviceId, (level) =>
-        bars.current?.setOutputLevel(level),
-      );
-      live.current = { socket: opened, player, stopMicrophone: null };
+      live.current = { socket: opened, player, stopMicrophone: null, ending: false };
       setControls('running');
 
-      opened.addEventListener('message', ({ data }) => {
-        if (typeof data === 'string') handleEvent(JSON.parse(data));
-        else player.play(data);
-      });
+      onServerMessage<ServerEvent>(opened, handleEvent, player.play);
       opened.addEventListener('close', (event) => finishLive(opened, event));
 
       const microphone = await startMicrophone(MIC_SAMPLE_RATE, (chunk) => {
-        if (opened.readyState === WebSocket.OPEN) opened.send(chunk);
+        sendIfOpen(opened, chunk);
         bars.current?.setLevel(chunkLevel(chunk));
       });
-      if (live.current?.socket !== opened) {
+      if (live.current?.socket !== opened || live.current.ending) {
         microphone.stop();
         return;
       }
       live.current.stopMicrophone = microphone.stop;
       if (getPref('mixOriginal')) player.mix(microphone.stream);
     } catch (err) {
-      if (live.current && live.current.socket === socket) {
-        live.current.player.close();
-        live.current = null;
-      }
+      if (live.current && live.current.socket === socket) live.current = null;
+      player?.close();
       socket?.close();
       if (!pending?.cancelled) {
         toast(t('translation.couldNotStart', { message: (err as Error).message }), 'error');
         refreshHealth();
       }
       setControls('idle');
+    } finally {
+      starting.current = false;
     }
   }
 
@@ -173,14 +171,11 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
   // The server translates and speaks the rest, then closes the socket.
   function stopLive() {
     if (!live.current) return;
+    live.current.ending = true;
     live.current.stopMicrophone?.();
     live.current.stopMicrophone = null;
     setControls('finishing');
-    if (live.current.socket.readyState === WebSocket.OPEN) {
-      live.current.socket.send(JSON.stringify({ type: 'endStream' }));
-    } else {
-      live.current.socket.close();
-    }
+    endStream(live.current.socket);
   }
 
   function finishLive(socket: WebSocket, event: CloseEvent) {
@@ -188,11 +183,11 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
     live.current.stopMicrophone?.();
     // Already received speech still plays to the end.
     live.current.player.close();
-    if (import.meta.env.DEV) setReceived(live.current.player.recording());
     live.current = null;
     setControls('idle');
-    if (event.code !== 1000) {
-      toast(t('translation.disconnected', { reason: event.reason || event.code }), 'error');
+    const reason = closeReason(event);
+    if (reason !== null) {
+      toast(t('translation.disconnected', { reason }), 'error');
       refreshHealth();
     }
   }
@@ -225,7 +220,7 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
   const label = t(LABELS[liveState]);
 
   // Steps unlock in order: the next one gets its button, later ones a lock.
-  const done = [Boolean(app.virtualMic), app.hasVoice];
+  const done = [Boolean(app.virtualMic), Boolean(app.voice)];
   const current = done.indexOf(false);
   const stepState = (index: number) =>
     done[index] ? 'done' : index === current ? 'current' : 'locked';
@@ -252,10 +247,7 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
               else startLive();
             }}
           >
-            <svg className="icon-mic" viewBox="0 0 24 24">
-              <rect x="9" y="3" width="6" height="11" rx="3" />
-              <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
-            </svg>
+            <MicIcon className="icon-mic" />
             <span className="icon-stop" />
             <span className="mic-label">
               {t(liveState === 'idle' ? 'live.start' : 'live.stop')}
@@ -280,10 +272,7 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
           title={t('translation.swap')}
           aria-label={t('translation.swap')}
           disabled={locked}
-          onClick={() => {
-            setSource(target);
-            setTarget(source);
-          }}
+          onClick={swap}
         >
           <svg viewBox="0 0 24 24">
             <path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5" />
@@ -299,23 +288,10 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
         />
       </div>
 
-      {received && (
-        <button
-          type="button"
-          className="ghost-button debug-download"
-          onClick={() => downloadWav(received, 'received.wav')}
-        >
-          Download received audio
-        </button>
-      )}
-
       <div className="lock-overlay" hidden={current < 0 || liveState !== 'idle'}>
         <div className="card lock-card">
           <div className="badge-icon">
-            <svg viewBox="0 0 24 24">
-              <rect x="5" y="11" width="14" height="10" rx="2.5" />
-              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-            </svg>
+            <LockIcon />
           </div>
           <h2>{t('unlock.title')}</h2>
           <p className="muted">{t('unlock.body')}</p>
@@ -343,16 +319,6 @@ export function VoiceTranslation({ hidden }: { hidden: boolean }) {
   );
 }
 
-function downloadWav(wav: Uint8Array, name: string) {
-  const url = URL.createObjectURL(new Blob([wav as BlobPart], { type: 'audio/wav' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-  // Revoked later: the download reads the blob after click() returns.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
 interface UnlockStepProps {
   number: number;
   state: 'done' | 'current' | 'locked';
@@ -370,10 +336,7 @@ function UnlockStep({ number, state, title, hint, href, action }: UnlockStepProp
         <svg className="step-check" viewBox="0 0 24 24">
           <path d="M5 12.5l4.5 4.5L19 7.5" />
         </svg>
-        <svg className="step-lock" viewBox="0 0 24 24">
-          <rect x="5" y="11" width="14" height="10" rx="2.5" />
-          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-        </svg>
+        <LockIcon className="step-lock" />
       </span>
       <span className="step-text">
         <strong>{title}</strong>

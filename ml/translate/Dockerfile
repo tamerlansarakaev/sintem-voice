@@ -1,15 +1,14 @@
 # Translate Gemma served by llama-server (llama.cpp). Weights are not baked
 # in: start.sh downloads the GGUF on first start into /models (a volume).
 # NVIDIA GPU only. The image already has curl.
-# Keep the tag in sync with setup.sh, which builds the same version natively.
+# setup.sh reads the tag from here to build the same version natively.
 FROM ghcr.io/ggml-org/llama.cpp:server-cuda12-b11913
 
 # start.sh defaults to the native layout; point it at the image's.
 ENV MODELS_DIR=/models \
     LLAMA_SERVER=/app/llama-server
 
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+COPY --chmod=755 start.sh /start.sh
 
 EXPOSE 8100
 

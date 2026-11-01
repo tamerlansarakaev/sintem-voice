@@ -1,10 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { Dropdown } from '../components/Dropdown';
-import { streamPcm } from '../lib/audio';
-import { connect, socketUrl } from '../lib/backend';
+import { ArrowIcon, CloseIcon } from '../components/icons';
+import { capturePcm, stopStream, type PcmCapture } from '../lib/audio';
+import {
+  closeReason,
+  connect,
+  endStream,
+  onServerMessage,
+  sendIfOpen,
+  socketUrl,
+} from '../lib/backend';
 import { useI18n } from '../lib/i18n';
-import { counterpart, languageOptions, type Language } from '../lib/languages';
+import { counterpart, languageOptions, useLanguagePair, type Language } from '../lib/languages';
 import type { StringKey } from '../lib/strings';
 
 const SAMPLE_RATE = 16000;
@@ -12,8 +20,7 @@ const SAMPLE_RATE = 16000;
 const MAX_LINES = 3;
 
 interface Capture {
-  stream: MediaStream;
-  audioContext: AudioContext;
+  pcm: PcmCapture;
   socket: WebSocket;
 }
 
@@ -37,21 +44,20 @@ function subtitleLanguage(language: Language): Language {
 }
 
 export function SubtitlesApp() {
-  const { t, language } = useI18n();
-  // English audio, subtitles in the app's language.
-  const [source, setSource] = useState<Language>('en');
-  const [target, setTarget] = useState<Language>(subtitleLanguage(language));
+  const { t } = useI18n();
   const [running, setRunning] = useState(false);
-
-  // When the app language changes in Settings, subtitles switch to it.
-  useEffect(() => {
-    if (!running) setTarget(subtitleLanguage(language));
-  }, [language]);
+  // English audio, subtitles in the app's language.
+  const { source, target, setSource, setTarget } = useLanguagePair(
+    (language) => ['en', subtitleLanguage(language)],
+    running,
+  );
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState<Status>({ key: 'live.idle' });
   const [lines, setLines] = useState<string[]>([]);
   const [partial, setPartial] = useState('');
   const capture = useRef<Capture | null>(null);
+  // A stopped session's last phrase is dropped once the next one starts.
+  const session = useRef(0);
   // Whether the server translates; without it the window falls back to the
   // recognised speech so it is not left empty.
   const translated = useRef(true);
@@ -104,6 +110,7 @@ export function SubtitlesApp() {
   }
 
   async function start() {
+    const id = ++session.current;
     setRunning(true);
     setLines([]);
     setPartial('');
@@ -111,7 +118,7 @@ export function SubtitlesApp() {
     setStatus({ key: 'live.connecting' });
     setStarting(true);
     try {
-      capture.current = await startCapture();
+      capture.current = await startCapture(id);
     } catch (err) {
       setRunning(false);
       setStatus({
@@ -126,22 +133,17 @@ export function SubtitlesApp() {
 
   function stop() {
     if (!capture.current) return;
-    const { stream, audioContext, socket } = capture.current;
+    const { pcm, socket } = capture.current;
     capture.current = null;
     setRunning(false);
     setStatus({ key: 'live.idle' });
 
-    stream.getTracks().forEach((track) => track.stop());
-    audioContext.close();
+    pcm.stop();
     // The server flushes the last phrase, then closes the socket.
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'endStream' }));
-    } else {
-      socket.close();
-    }
+    endStream(socket);
   }
 
-  async function startCapture(): Promise<Capture> {
+  async function startCapture(id: number): Promise<Capture> {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: true,
@@ -150,7 +152,7 @@ export function SubtitlesApp() {
     stream.getVideoTracks().forEach((track) => track.stop());
     const [audioTrack] = stream.getAudioTracks();
     if (!audioTrack || audioTrack.readyState === 'ended') {
-      stream.getTracks().forEach((track) => track.stop());
+      stopStream(stream);
       throw new Error(t('live.permission'));
     }
 
@@ -160,43 +162,36 @@ export function SubtitlesApp() {
         await socketUrl('/translate-subtitles', { source, target }),
       ).opened;
     } catch (err) {
-      stream.getTracks().forEach((track) => track.stop());
+      stopStream(stream);
       throw err;
     }
-    socket.addEventListener('message', (event) => {
-      if (typeof event.data === 'string') handleEvent(JSON.parse(event.data));
+    onServerMessage<ServerEvent>(socket, (event) => {
+      if (session.current === id) handleEvent(event);
     });
     socket.addEventListener('close', (event) => {
       if (capture.current?.socket !== socket) return;
       stop();
-      if (event.code !== 1000) {
-        setStatus({
-          key: 'live.disconnected',
-          vars: { reason: event.reason || event.code },
-          error: true,
-        });
+      const reason = closeReason(event);
+      if (reason !== null) {
+        setStatus({ key: 'live.disconnected', vars: { reason }, error: true });
       }
     });
 
-    let audioContext: AudioContext;
+    let pcm: PcmCapture;
     try {
       // The server buffers audio until it is ready, so send right away.
-      audioContext = await streamPcm(stream, SAMPLE_RATE, (chunk) => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(chunk);
-      });
+      pcm = await capturePcm(stream, SAMPLE_RATE, (chunk) => sendIfOpen(socket, chunk));
     } catch (err) {
-      stream.getTracks().forEach((track) => track.stop());
       socket.close();
       throw err;
     }
 
     // The close handler ignores sockets that closed before capture was set.
     if (socket.readyState !== WebSocket.OPEN) {
-      stream.getTracks().forEach((track) => track.stop());
-      audioContext.close();
+      pcm.stop();
       throw new Error('server closed the connection');
     }
-    return { stream, audioContext, socket };
+    return { pcm, socket };
   }
 
   const options = languageOptions(t);
@@ -216,9 +211,7 @@ export function SubtitlesApp() {
           disabled={running}
           title={t('translation.from')}
         />
-        <svg className="subtitles-arrow" viewBox="0 0 24 24">
-          <path d="M5 12h14M14 7l5 5-5 5" />
-        </svg>
+        <ArrowIcon className="subtitles-arrow" />
         <Dropdown
           className="compact"
           value={target}
@@ -234,9 +227,7 @@ export function SubtitlesApp() {
           aria-label={t('live.close')}
           onClick={() => window.windowControls.close()}
         >
-          <svg viewBox="0 0 24 24">
-            <path d="M7 7l10 10M17 7L7 17" />
-          </svg>
+          <CloseIcon />
         </button>
       </header>
 

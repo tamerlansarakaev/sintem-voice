@@ -15,7 +15,8 @@ else
   # Written last, so an interrupted install runs again.
   if [ ! -f "$venv/.installed" ]; then
     echo "Installing the requirements into $venv"
-    python3 -m venv "$venv"
+    # The flash-attn wheel in requirements.txt is built for Python 3.12 only.
+    python3.12 -m venv "$venv"
     "$python" -m pip install -r "$dir/requirements.txt"
     touch "$venv/.installed"
   fi

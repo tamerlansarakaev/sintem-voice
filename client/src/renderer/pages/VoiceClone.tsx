@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
+import { ArrowIcon, PlayIcon } from '../components/icons';
 import {
   base64ToBytes,
   bytesToBase64,
@@ -89,7 +90,7 @@ function recordedMs(recording: Recording) {
 export function VoiceClone({ hidden }: { hidden: boolean }) {
   const { t, language } = useI18n();
   const toast = useToast();
-  const { update } = useAppState();
+  const { state: app, update } = useAppState();
   const [promptIndex, setPromptIndex] = useState(0);
   const recording = useRef<Recording | null>(null);
   // Re-renders the recorder; the recording itself lives in the ref.
@@ -98,7 +99,10 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
   // The finished recording waiting for Create voice.
   const [sample, setSample] = useState<Sample | null>(null);
   // The voice sent with every live translation session.
-  const [saved, setSaved] = useState<Sample | null>(null);
+  const saved = useMemo<Sample | null>(
+    () => app.voice && { text: app.voice.text, wav: base64ToBytes(app.voice.wav) },
+    [app.voice],
+  );
   const [recordedOnce, setRecordedOnce] = useState(false);
   const [status, setStatus] = useState<Status>({ key: 'clone.statusIdle' });
   const [busy, setBusy] = useState(false);
@@ -113,13 +117,10 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
   const active = mode !== 'idle';
 
   useEffect(() => {
-    window.voice.load().then((voice) => {
-      if (!voice) return;
-      setSaved({ text: voice.text, wav: base64ToBytes(voice.wav) });
-      setRecordedOnce(true);
-      setStatus({ key: 'clone.statusSaved' });
-    });
-  }, []);
+    if (!app.voice) return;
+    setRecordedOnce(true);
+    setStatus({ key: 'clone.statusSaved' });
+  }, [app.voice]);
 
   // A closed window ends the recording.
   useEffect(
@@ -255,11 +256,11 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
     setBusy(true);
     stopPlayback();
     try {
-      await window.voice.save({ text: sample.text, wav: bytesToBase64(sample.wav) });
-      setSaved(sample);
+      const voice = { text: sample.text, wav: bytesToBase64(sample.wav) };
+      await window.voice.save(voice);
       setSample(null);
       setStatus({ key: 'clone.statusSaved' });
-      update({ hasVoice: true });
+      update({ voice });
       toast(t('clone.created'), 'success');
       goTo('voice-translation');
     } catch (err) {
@@ -318,9 +319,7 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
               onClick={() => choosePrompt((promptIndex + 1) % prompts.length)}
             >
               <span>{t('clone.nextText')}</span>
-              <svg viewBox="0 0 24 24">
-                <path d="M5 12h14M14 7l5 5-5 5" />
-              </svg>
+              <ArrowIcon />
             </button>
           </div>
           <blockquote className="voice-prompt" key={text}>
@@ -346,7 +345,7 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
               aria-label={listenLabel('saved')}
               onClick={() => togglePlayback('saved')}
             >
-              <PlayIcon playing={playing === 'saved'} />
+              <PlaybackIcon playing={playing === 'saved'} />
             </button>
             <div className="saved-voice-text">
               <span className="saved-voice-title">
@@ -385,9 +384,7 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
           <svg className="icon-pause" viewBox="0 0 24 24">
             <path d="M9 6v12M15 6v12" />
           </svg>
-          <svg className="icon-resume" viewBox="0 0 24 24">
-            <path d="M8 5.5v13l10.5-6.5z" />
-          </svg>
+          <PlayIcon className="icon-resume" />
         </button>
         <button
           type="button"
@@ -397,7 +394,7 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
           aria-label={listenLabel('sample')}
           onClick={() => togglePlayback('sample')}
         >
-          <PlayIcon playing={playing === 'sample'} />
+          <PlaybackIcon playing={playing === 'sample'} />
         </button>
         <button
           type="button"
@@ -422,14 +419,12 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
   );
 }
 
-function PlayIcon({ playing }: { playing: boolean }) {
+function PlaybackIcon({ playing }: { playing: boolean }) {
   return playing ? (
     <svg viewBox="0 0 24 24">
       <rect x="7" y="7" width="10" height="10" rx="1.5" />
     </svg>
   ) : (
-    <svg className="icon-play" viewBox="0 0 24 24">
-      <path d="M8 5.5v13l10.5-6.5z" />
-    </svg>
+    <PlayIcon className="icon-play" />
   );
 }
