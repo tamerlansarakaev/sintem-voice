@@ -15,11 +15,11 @@ export function feedTranslator(
       break;
     case 'transcript':
       transcript.addPartial(String(event.transcript ?? ''));
-      translator.updateSource(transcript.stable, transcript.hasDraft);
+      translator.updateSource(transcript.stable);
       break;
     case 'speechComplete':
       transcript.completeTurn(String(event.transcript ?? ''));
-      translator.updateSource(transcript.stable, false);
+      translator.updateSource(transcript.stable);
       translator.setPaused(true);
       break;
   }

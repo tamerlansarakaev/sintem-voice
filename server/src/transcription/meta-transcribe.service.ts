@@ -8,8 +8,6 @@ const META_TRANSCRIBE_MODEL = 'muse-voice-transcribe-1.0';
 // Meta is billed while the session is open, so endStream must not hang.
 const END_STREAM_TIMEOUT_MS = 10_000;
 
-// Server events from Meta: speechStart, transcript, speechEnd,
-// speechComplete, audioProgress, error. Unknown types must be ignored.
 export interface MetaTranscribeEvent {
   type: string;
   [key: string]: unknown;
@@ -72,7 +70,6 @@ export class MetaTranscribeSession {
     });
   }
 
-  // Raw PCM: signed 16-bit little-endian, mono, 16 kHz. Frame size is free.
   sendAudio(chunk: Buffer): void {
     if (this.endRequested) return;
     if (!this.ready) {
@@ -82,7 +79,6 @@ export class MetaTranscribeSession {
     if (this.socket.readyState === WebSocket.OPEN) this.socket.send(chunk);
   }
 
-  // Meta flushes the remaining results and closes with 1000.
   end(): void {
     if (this.endRequested) return;
     this.endRequested = true;

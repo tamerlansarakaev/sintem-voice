@@ -28,17 +28,13 @@ interface Segment {
   length: number;
 }
 
-// Translates the stable transcript while it grows. Source before `cursor`
-// is translated finally; the rest is the queue. A finished sentence is
-// translated finally, a pause translates the whole queue, otherwise drafts
-// run and a draft word is confirmed once two drafts in a row agree on it.
-// Requests run one at a time and are chosen from the latest state.
+// Sentences and pauses are translated finally, the rest as drafts whose
+// words are confirmed once two drafts in a row agree.
 export class SimultaneousTranslator {
   private readonly logger = new Logger(SimultaneousTranslator.name);
   private source = '';
   private cursor = 0;
   private context = '';
-  private hasDraftWords = false;
   private paused = false;
   private pauseTranslated = false;
   private draining = false;
@@ -59,13 +55,12 @@ export class SimultaneousTranslator {
     private readonly events: TranslatorEvents,
   ) {}
 
-  updateSource(stable: string, hasDraftWords: boolean): void {
+  updateSource(stable: string): void {
     // Stable text only grows; anything else is ignored.
     if (stable !== this.source && stable.startsWith(this.source)) {
       this.source = stable;
       this.pauseTranslated = false;
     }
-    this.hasDraftWords = hasDraftWords;
     this.runNext();
   }
 
@@ -106,7 +101,7 @@ export class SimultaneousTranslator {
     if (end > 0) {
       return { kind: 'final', text: queue.slice(0, end), length: offset + end };
     }
-    const pause = this.paused && !this.hasDraftWords && !this.pauseTranslated;
+    const pause = this.paused && !this.pauseTranslated;
     if (this.draining || pause) {
       return { kind: 'pause', text: queue.trimEnd(), length: rest.length };
     }
@@ -167,8 +162,7 @@ export class SimultaneousTranslator {
       context: this.context,
     });
     if (this.closed) return;
-    const stillPaused =
-      this.paused && !this.hasDraftWords && this.source === sourceBefore;
+    const stillPaused = this.paused && this.source === sourceBefore;
     if (this.draining || stillPaused) this.finishSegment(segment, translation);
     else this.lastDraftText = '';
   }
