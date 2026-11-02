@@ -2,9 +2,6 @@
 
 llama.cpp translation service on port 8100. Linux with an NVIDIA GPU only.
 
-The service has no auth: allow the port only from the backend host, never
-from the internet.
-
 The model is pinned in `start.sh`. On first start it downloads into
 `ml/models/translate/` and is reused afterwards, with or without Docker.
 

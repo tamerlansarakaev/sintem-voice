@@ -1,21 +1,13 @@
-# Linux + NVIDIA only (NVIDIA Container Toolkit on the host).
-# The service has no auth: allow the port only from the backend host
-# (firewall / private network), never from the internet.
-
 services:
   tts:
     build: .
     ports:
       - "8200:8200"
     environment:
-      # Fewer diffusion steps generate faster at some cost in quality.
       INFERENCE_TIMESTEPS: ${INFERENCE_TIMESTEPS:-10}
-      # Share of GPU memory TTS takes, after what is already in use.
       GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.75}
-      # Seconds of earlier speech each portion continues; 0 turns it off.
       TTS_HISTORY_S: ${TTS_HISTORY_S:-10}
     volumes:
-      # Weights are downloaded here on first start and reused afterwards.
       # A named volume inherits /models ownership from the image, so the
       # non-root user can write to it (a bind mount would be root-owned).
       - tts-models:/models

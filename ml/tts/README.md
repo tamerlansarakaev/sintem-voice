@@ -2,10 +2,7 @@
 
 VoxCPM2 text-to-speech service on port 8200, run by the
 [nano-vllm](https://github.com/a710128/nanovllm-voxcpm) engine. Linux with
-an NVIDIA GPU only (driver >= 570), Python 3.12.
-
-The service has no auth: allow the port only from the backend host, never
-from the internet.
+an NVIDIA GPU only (driver >= 570).
 
 The model is pinned in `start.sh`. On first start it downloads (~5 GB)
 and is reused afterwards: into the `tts-models` volume in Docker, into

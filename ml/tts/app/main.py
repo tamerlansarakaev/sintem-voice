@@ -15,7 +15,7 @@ import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from nanovllm_voxcpm import VoxCPM
-from num2words import num2words
+from num2words import CONVERTER_CLASSES, num2words
 
 MODEL_DIR = os.environ["MODEL_DIR"]
 # Counts memory other GPU processes already use.
@@ -43,14 +43,7 @@ SILENCE_MARGIN_S = 0.12
 # Quiet up to this long is sent at once: it is often a soft word ending.
 QUIET_SENT_S = 0.6
 # Digits are often misread, so numbers are spelled out.
-PERCENT = {
-    "en": "percent",
-    "de": "Prozent",
-    "fr": "pour cent",
-    "es": "por ciento",
-    "ru": "процентов",
-}
-NUMBER_RE = re.compile(r"(?<![\w.,])(\d{1,2}):(\d{2})(?!\d)|(?<![\w.,])\d+(?:[.,]\d+)*(?![\w])(\s*%)?")
+NUMBER_RE = re.compile(r"(?<![\w.,])(\d{1,2}):(\d{2})(?!\d)|(?<![\w.,])\d+(?:[.,]\d+)*(?![\w])")
 
 logger = logging.getLogger("tts")
 
@@ -210,7 +203,7 @@ async def speak(
                         pass
                 continue
             text, following = merge_queued(text, segments)
-            text = spell_numbers(text, lang)
+            # text = spell_numbers(text, lang)
             # A continuation keeps its case.
             if not history:
                 text = text[:1].upper() + text[1:]
@@ -341,7 +334,7 @@ def with_sentence_end(text: str) -> str:
 
 
 def spell_numbers(text: str, lang: str) -> str:
-    if lang not in PERCENT:
+    if lang not in CONVERTER_CLASSES:
         return text
 
     def say(number: str) -> str:
@@ -356,11 +349,9 @@ def spell_numbers(text: str, lang: str) -> str:
         try:
             if match.group(1):
                 return f"{say(match.group(1))} {say(match.group(2))}"
-            sign = match.group(3) or ""
-            words = say(match.group(0)[: len(match.group(0)) - len(sign)])
+            return say(match.group(0))
         except Exception:
             return match.group(0)
-        return f"{words} {PERCENT[lang]}" if match.group(3) else words
 
     return NUMBER_RE.sub(replace, text)
 

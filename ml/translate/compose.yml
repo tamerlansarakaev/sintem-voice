@@ -1,22 +1,13 @@
-# Linux + NVIDIA only (NVIDIA Container Toolkit on the host).
-# The service has no auth: allow the port only from the backend host
-# (firewall / private network), never from the internet.
-
 services:
   translate:
     build: .
     ports:
       - "8100:8100"
     environment:
-      # The model and the defaults are in start.sh; empty takes the default.
-      # Concurrent requests. CTX_SIZE is split between them, so each
-      # request gets CTX_SIZE / PARALLEL tokens. Override from .env or the
-      # shell: PARALLEL=2 CTX_SIZE=8192 docker compose up -d --build
+      # Unset passes an empty value, and start.sh then uses its own default.
       PARALLEL: ${PARALLEL:-}
       CTX_SIZE: ${CTX_SIZE:-}
     volumes:
-      # Weights are downloaded here on first start and reused afterwards.
-      # Same folder as native runs use.
       - ../models/translate:/models
     deploy:
       resources:

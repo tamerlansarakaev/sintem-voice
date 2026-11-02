@@ -7,8 +7,15 @@ import { useI18n, type Translate } from './i18n';
 export const LANGUAGES = ['en', 'ru', 'es', 'fr', 'de'] as const;
 export type Language = (typeof LANGUAGES)[number];
 
+// Languages whose translation quality is still being tuned.
+const BETA: readonly Language[] = ['fr'];
+
 export function languageOptions(t: Translate): DropdownOption<Language>[] {
-  return LANGUAGES.map((code) => ({ value: code, label: t(`lang.${code}`) }));
+  return LANGUAGES.map((code) => ({
+    value: code,
+    label: t(`lang.${code}`),
+    badge: BETA.includes(code) ? 'Beta' : undefined,
+  }));
 }
 
 // The language to pair with `language` when nothing else is chosen.

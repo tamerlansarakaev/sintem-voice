@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 export interface DropdownOption<T extends string> {
   value: T;
   label: string;
+  badge?: string;
 }
 
 interface DropdownProps<T extends string> {
@@ -148,6 +149,9 @@ export function Dropdown<T extends string>({
         onKeyDown={onKeyDown}
       >
         <span className="dropdown-label">{options[selected]?.label ?? ''}</span>
+        {options[selected]?.badge && (
+          <span className="dropdown-badge">{options[selected].badge}</span>
+        )}
         <svg className="dropdown-chevron" viewBox="0 0 24 24">
           <path d="M7 10l5 5 5-5" />
         </svg>
@@ -171,6 +175,7 @@ export function Dropdown<T extends string>({
                 onClick={() => pick(index)}
               >
                 {option.label}
+                {option.badge && <span className="dropdown-badge">{option.badge}</span>}
               </div>
             ))}
           </div>,

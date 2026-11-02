@@ -1516,6 +1516,17 @@ html:not(.platform-darwin) .page-header {
   white-space: nowrap;
 }
 
+.dropdown-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .dropdown-chevron {
   flex: none;
   width: 14px;
