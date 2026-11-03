@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WebSocket, type RawData } from 'ws';
+import { splitWords } from '../translation/text.js';
 
 // https://dev.meta.ai/docs/speech-to-text
 const META_REALTIME_URL = 'wss://api.meta.ai/v1/asr/realtime';
@@ -34,6 +35,7 @@ export class MetaTranscribeSession {
     private readonly handlers: MetaTranscribeHandlers,
     // Language names such as "English"; a hint, the model may still detect another.
     languageBias?: string[],
+    private readonly logEvents = false,
   ) {
     this.socket = new WebSocket(META_REALTIME_URL);
 
@@ -116,14 +118,27 @@ export class MetaTranscribeSession {
       this.logger.error(
         `Meta session ${this.sessionId ?? '(no handshake)'} error: ${JSON.stringify(message)}`,
       );
+    } else if (this.logEvents) {
+      this.logEvent(message);
     }
     this.handlers.onEvent(message);
+  }
+
+  // Only the event type and the word count: the speech itself is never logged.
+  private logEvent(event: MetaTranscribeEvent) {
+    const words =
+      typeof event.transcript === 'string'
+        ? ` · ${splitWords(event.transcript).length} words`
+        : '';
+    this.logger.log(`Meta ${event.type}${words}`);
   }
 
   private onHandshakeAck(sessionId: string) {
     this.ready = true;
     this.sessionId = sessionId;
-    this.logger.log(`Meta session ${sessionId} opened`);
+    this.logger.log(
+      `Meta session ${sessionId} opened (${META_TRANSCRIBE_MODEL})`,
+    );
     for (const chunk of this.pending) this.socket.send(chunk);
     this.pending = [];
     this.handlers.onReady(sessionId);
@@ -146,6 +161,7 @@ export class MetaTranscribeService {
     languageBias?: string[],
   ): MetaTranscribeSession {
     const apiKey = this.config.getOrThrow<string>('META_API_KEY');
-    return new MetaTranscribeSession(apiKey, handlers, languageBias);
+    const logEvents = this.config.get<string>('META_LOG_EVENTS') === 'true';
+    return new MetaTranscribeSession(apiKey, handlers, languageBias, logEvents);
   }
 }
