@@ -11,6 +11,7 @@ import {
   closeCode,
   keepAlive,
   send,
+  sendMetaError,
   toBuffer,
 } from '../transcription/ws.utils.js';
 import { feedTranslator } from '../translation/feed-translator.js';
@@ -23,10 +24,6 @@ const DEFAULT_SOURCE = 'en';
 const DEFAULT_TARGET = 'ru';
 const DRAIN_TIMEOUT_MS = 5000;
 
-// URL: /translate-subtitles?source=en&target=ru
-// In: binary PCM s16le 16 kHz mono, then {"type":"endStream"}.
-// Out: {"type":"ready"}, Meta events and
-// {"type":"translationDraft"|"translationFinal","text"}.
 @WebSocketGateway({ path: '/translate-subtitles' })
 export class TranslateSubtitlesGateway implements OnGatewayConnection {
   private readonly logger = new Logger(TranslateSubtitlesGateway.name);
@@ -36,7 +33,7 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
     private readonly translateService: TranslateService,
   ) {}
 
-  handleConnection(client: WebSocket, request: IncomingMessage): void {
+  handleConnection(client: WebSocket, request: IncomingMessage) {
     const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
     const target = params.get('target') ?? DEFAULT_TARGET;
     const source = params.get('source') ?? DEFAULT_SOURCE;
@@ -66,7 +63,7 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
         {
           onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
           onEvent: (event) => {
-            send(client, event);
+            sendMetaError(client, event);
             feedTranslator(event, transcript, translator);
           },
           onClose: async (code, reason) => {

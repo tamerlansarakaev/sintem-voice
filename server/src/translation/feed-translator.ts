@@ -8,7 +8,7 @@ export function feedTranslator(
   event: MetaTranscribeEvent,
   transcript: StableTranscript,
   translator: SimultaneousTranslator,
-): void {
+) {
   switch (event.type) {
     case 'speechStart':
       translator.setPaused(false);

@@ -21,7 +21,7 @@ export class SpeechFeeder {
   constructor(private readonly speak: (text: string) => void) {}
 
   // Confirmed start of the current segment's translation.
-  draft(text: string): void {
+  draft(text: string) {
     const words = splitWords(text);
     if (words.length - this.spoken < MIN_WORDS) return;
     this.speak(asContinuing(words.slice(this.spoken).join(' ')));
@@ -29,13 +29,13 @@ export class SpeechFeeder {
   }
 
   // Starts with the confirmed words, which were used as its prefill.
-  final(text: string): void {
+  final(text: string) {
     const rest = splitWords(text).slice(this.spoken);
     this.spoken = 0;
     if (rest.length) this.speak(rest.join(' '));
   }
 
-  skip(): void {
+  skip() {
     this.spoken = 0;
   }
 }

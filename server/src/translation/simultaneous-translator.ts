@@ -55,7 +55,7 @@ export class SimultaneousTranslator {
     private readonly events: TranslatorEvents,
   ) {}
 
-  updateSource(stable: string): void {
+  updateSource(stable: string) {
     // Stable text only grows; anything else is ignored.
     if (stable !== this.source && stable.startsWith(this.source)) {
       this.source = stable;
@@ -64,7 +64,7 @@ export class SimultaneousTranslator {
     this.runNext();
   }
 
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean) {
     this.paused = paused;
     if (!paused) this.pauseTranslated = false;
     this.runNext();
@@ -83,7 +83,7 @@ export class SimultaneousTranslator {
     this.close();
   }
 
-  close(): void {
+  close() {
     this.closed = true;
     this.abort?.abort();
     this.notifyIdle();
@@ -111,7 +111,7 @@ export class SimultaneousTranslator {
     return null;
   }
 
-  private runNext(): void {
+  private runNext() {
     if (this.busy || this.closed) return;
     const segment = this.nextSegment();
     if (!segment) {
@@ -175,7 +175,7 @@ export class SimultaneousTranslator {
     if (!this.closed) this.finishSegment(segment, translation);
   }
 
-  private confirmAgreedWords(words: string[]): void {
+  private confirmAgreedWords(words: string[]) {
     if (this.closed || !this.previousDraft) return;
     let agreed = commonPrefixLength(this.previousDraft, words);
     // A word ending in a comma waits for the next one: confirmed, the comma
@@ -190,7 +190,7 @@ export class SimultaneousTranslator {
     this.events.draft(this.confirmed.join(' '));
   }
 
-  private finishSegment(segment: Segment, translation?: string): void {
+  private finishSegment(segment: Segment, translation?: string) {
     if (translation !== undefined) this.events.final(translation);
     else this.events.skipped?.();
     this.cursor += segment.length;
@@ -200,7 +200,7 @@ export class SimultaneousTranslator {
     this.lastDraftText = '';
   }
 
-  private handleError(segment: Segment, err: Error): void {
+  private handleError(segment: Segment, err: Error) {
     if (this.closed) return;
     // Skip an untranslatable segment instead of retrying it forever.
     if (segment.kind !== 'draft') this.finishSegment(segment);
@@ -212,7 +212,7 @@ export class SimultaneousTranslator {
     this.events.error('Translation is unavailable');
   }
 
-  private notifyIdle(): void {
+  private notifyIdle() {
     this.idleWaiters.splice(0).forEach((resolve) => resolve());
   }
 }

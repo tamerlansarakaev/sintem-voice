@@ -34,28 +34,28 @@ export class TtsSession {
   }
 
   // One portion of text, spoken as one phrase.
-  speak(text: string): void {
+  speak(text: string) {
     this.send({ type: 'text', text });
     this.send({ type: 'flush' });
   }
 
   // Synthesizes a phrase that is not played, so the first real one does not
   // wait for the service to wake up.
-  warmUp(): void {
+  warmUp() {
     this.send({ type: 'warmup' });
   }
 
-  end(): void {
+  end() {
     this.send({ type: 'end' });
   }
 
-  close(): void {
+  close() {
     this.closed = true;
     this.pending = [];
     this.socket?.close();
   }
 
-  private connect(): void {
+  private connect() {
     const url = new URL('/synthesize', this.baseUrl);
     url.searchParams.set('lang', this.language);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -64,7 +64,10 @@ export class TtsSession {
 
     socket.on('open', () => {
       socket.send(
-        JSON.stringify({ type: 'voice', wav: this.voice.wav.toString('base64') }),
+        JSON.stringify({
+          type: 'voice',
+          wav: this.voice.wav.toString('base64'),
+        }),
       );
     });
 
@@ -85,7 +88,7 @@ export class TtsSession {
     });
   }
 
-  private handleMessage(socket: WebSocket, message: TtsMessage): void {
+  private handleMessage(socket: WebSocket, message: TtsMessage) {
     switch (message.type) {
       case 'ready':
         this.ready = true;
@@ -103,7 +106,7 @@ export class TtsSession {
     }
   }
 
-  private send(payload: object): void {
+  private send(payload: object) {
     if (this.closed) return;
     const frame = JSON.stringify(payload);
     if (this.ready && this.socket?.readyState === WebSocket.OPEN) {

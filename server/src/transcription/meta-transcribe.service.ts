@@ -70,7 +70,7 @@ export class MetaTranscribeSession {
     });
   }
 
-  sendAudio(chunk: Buffer): void {
+  sendAudio(chunk: Buffer) {
     if (this.endRequested) return;
     if (!this.ready) {
       this.pending.push(chunk);
@@ -79,14 +79,14 @@ export class MetaTranscribeSession {
     if (this.socket.readyState === WebSocket.OPEN) this.socket.send(chunk);
   }
 
-  end(): void {
+  end() {
     if (this.endRequested) return;
     this.endRequested = true;
     if (this.ready) this.sendEndStream();
     this.endTimer = setTimeout(() => this.close(), END_STREAM_TIMEOUT_MS);
   }
 
-  close(): void {
+  close() {
     this.pending = [];
     if (
       this.socket.readyState === WebSocket.OPEN ||
@@ -96,7 +96,7 @@ export class MetaTranscribeSession {
     }
   }
 
-  private handleMessage(data: RawData): void {
+  private handleMessage(data: RawData) {
     let message: MetaTranscribeEvent & { sessionId?: string };
     try {
       message = JSON.parse(data.toString());
@@ -112,10 +112,15 @@ export class MetaTranscribeSession {
       return;
     }
 
+    if (message.type === 'error') {
+      this.logger.error(
+        `Meta session ${this.sessionId ?? '(no handshake)'} error: ${JSON.stringify(message)}`,
+      );
+    }
     this.handlers.onEvent(message);
   }
 
-  private onHandshakeAck(sessionId: string): void {
+  private onHandshakeAck(sessionId: string) {
     this.ready = true;
     this.sessionId = sessionId;
     this.logger.log(`Meta session ${sessionId} opened`);
@@ -125,7 +130,7 @@ export class MetaTranscribeSession {
     if (this.endRequested) this.sendEndStream();
   }
 
-  private sendEndStream(): void {
+  private sendEndStream() {
     if (this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({ type: 'endStream' }));
     }

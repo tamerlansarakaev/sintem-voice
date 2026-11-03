@@ -9,11 +9,11 @@ export class StableTranscript {
     return joinText(this.finishedTurns, this.published.join(' '));
   }
 
-  addPartial(text: string): void {
+  addPartial(text: string) {
     this.published.push(...splitWords(text).slice(this.published.length));
   }
 
-  completeTurn(text: string): void {
+  completeTurn(text: string) {
     this.addPartial(text);
     this.finishedTurns = this.stable;
     this.published = [];
