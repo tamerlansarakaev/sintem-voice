@@ -1090,19 +1090,6 @@ html:not(.platform-darwin) .page-header {
   animation: fade-in 0.35s var(--ease);
 }
 
-.voice-prompt span {
-  transition: color 0.25s;
-}
-
-/* While recording, unread words wait in grey. */
-.voice-clone:is(.recording, .paused) .voice-prompt span {
-  color: var(--text-faint);
-}
-
-.voice-clone:is(.recording, .paused) .voice-prompt span.read {
-  color: var(--accent);
-}
-
 /* Thin line along the bottom edge of the card. */
 .prompt-progress {
   position: absolute;

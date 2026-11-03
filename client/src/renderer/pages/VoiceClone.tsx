@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { ArrowIcon, PlayIcon } from '../components/icons';
 import {
@@ -113,7 +113,6 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
 
   const prompts = VOICE_PROMPTS[language];
   const text = prompts[promptIndex];
-  const words = text.split(' ');
   const active = mode !== 'idle';
 
   useEffect(() => {
@@ -271,8 +270,6 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
   }
 
   const fraction = Math.min(1, elapsed / (MAX_SECONDS * 1000));
-  // Words light up one by one as the recording advances.
-  const read = Math.round(fraction * words.length);
   const seconds = Math.min(MAX_SECONDS, Math.floor(elapsed / 1000));
   const recordLabel = t(
     active ? 'clone.stop' : recordedOnce ? 'clone.recordAgain' : 'clone.record',
@@ -323,12 +320,7 @@ export function VoiceClone({ hidden }: { hidden: boolean }) {
             </button>
           </div>
           <blockquote className="voice-prompt" key={text}>
-            {words.map((word, index) => (
-              <Fragment key={index}>
-                {index > 0 && ' '}
-                <span className={index < read ? 'read' : undefined}>{word}</span>
-              </Fragment>
-            ))}
+            {text}
           </blockquote>
           <div className="prompt-progress">
             <div className="progress-fill" style={{ width: `${fraction * 100}%` }} />

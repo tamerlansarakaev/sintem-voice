@@ -29,7 +29,7 @@ export class TranslateService {
     this.baseUrl = config.get<string>('TRANSLATE_URL') || undefined;
     if (!this.baseUrl) {
       this.logger.warn(
-        'TRANSLATE_URL is not set, subtitles are not translated',
+        'TRANSLATE_URL is not set, subtitles and voice translation are disabled',
       );
     }
   }

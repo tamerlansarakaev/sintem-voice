@@ -31,9 +31,7 @@ interface Status {
 }
 
 type ServerEvent =
-  | { type: 'ready'; translated?: boolean }
-  | { type: 'transcript'; transcript: string }
-  | { type: 'speechComplete'; transcript: string }
+  | { type: 'ready' }
   | { type: 'translationDraft'; text: string }
   | { type: 'translationFinal'; text: string }
   | { type: 'error'; message: string };
@@ -58,9 +56,6 @@ export function SubtitlesApp() {
   const capture = useRef<Capture | null>(null);
   // A stopped session's last phrase is dropped once the next one starts.
   const session = useRef(0);
-  // Whether the server translates; without it the window falls back to the
-  // recognised speech so it is not left empty.
-  const translated = useRef(true);
   const body = useRef<HTMLDivElement>(null);
 
   const text = [...lines, partial].filter(Boolean);
@@ -82,20 +77,11 @@ export function SubtitlesApp() {
     if (value) setLines((current) => [...current, value].slice(-MAX_LINES));
   }
 
-  // Only the translation is shown; recognised speech is used only when the
-  // server does not translate.
+  // Only the translation is shown; recognised speech events are ignored.
   function handleEvent(event: ServerEvent) {
     switch (event.type) {
       case 'ready':
-        translated.current = event.translated === true;
         setStatus({ key: 'live.waiting' });
-        break;
-      case 'transcript':
-        // CUMULATIVE mode: every partial is the whole current hypothesis.
-        if (!translated.current) showPartial(event.transcript);
-        break;
-      case 'speechComplete':
-        if (!translated.current) addLine(event.transcript);
         break;
       case 'translationDraft':
         showPartial(event.text);
@@ -114,7 +100,6 @@ export function SubtitlesApp() {
     setRunning(true);
     setLines([]);
     setPartial('');
-    translated.current = true;
     setStatus({ key: 'live.connecting' });
     setStarting(true);
     try {
