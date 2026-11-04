@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WebSocket, type RawData } from 'ws';
-import { splitWords } from '../translation/text.js';
 
 // https://dev.meta.ai/docs/speech-to-text
 const META_REALTIME_URL = 'wss://api.meta.ai/v1/asr/realtime';
@@ -124,13 +123,11 @@ export class MetaTranscribeSession {
     this.handlers.onEvent(message);
   }
 
-  // Only the event type and the word count: the speech itself is never logged.
+  // The event type and, when present, the recognized text.
   private logEvent(event: MetaTranscribeEvent) {
-    const words =
-      typeof event.transcript === 'string'
-        ? ` · ${splitWords(event.transcript).length} words`
-        : '';
-    this.logger.log(`Meta ${event.type}${words}`);
+    const text =
+      typeof event.transcript === 'string' ? ` · "${event.transcript}"` : '';
+    this.logger.log(`Meta ${event.type}${text}`);
   }
 
   private onHandshakeAck(sessionId: string) {

@@ -1759,7 +1759,6 @@ body.subtitles-window {
   display: flex;
   flex: 1;
   flex-direction: column;
-  justify-content: flex-end;
   padding: 14px 20px;
   overflow: auto;
 }
