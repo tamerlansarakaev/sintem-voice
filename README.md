@@ -5,12 +5,12 @@ the other side hears you in theirs, in your own voice, through a virtual
 microphone that works with Zoom, Meet, Discord or any other app. What
 they say comes back as live subtitles over the screen.
 
-Built for the Meta Global AI Developer Hackathon, track "Build for Your
-World".
+Built for the Meta Global AI Developer Hackathon, problem statement
+"Build for Your World".
 
 ## Demo
 
-<!-- Demo video link -->
+[Watch the 3-minute demo on YouTube](https://www.youtube.com/watch?v=ZC8dU3gjAaQ)
 
 ## Features
 
@@ -86,12 +86,15 @@ previous one, not after the whole sentence.
 2. The server forwards it to **Muse Voice Transcribe**
    (`muse-voice-transcribe-1.0`) over the Meta realtime ASR WebSocket and
    receives partial and final transcripts.
-3. The stable part of the transcript is translated word by word, earlier
-   drafts are replaced as the sentence grows.
-4. For voice translation, finished parts go to the TTS service, which
-   speaks them in the user's voice and keeps the flow of the earlier
-   speech. The audio is streamed back to the client and played into the
-   virtual microphone.
+3. While the phrase is still being spoken, the unfinished sentence is
+   translated again with each new word. Words that two drafts in a row
+   agree on are locked in. A phrase is finalized at a sentence end or when
+   Muse reports a pause.
+4. For voice translation, locked words go to the TTS service in portions
+   of at least three words, and the rest follows the final translation.
+   TTS speaks them in the user's voice, continuing the earlier speech of
+   the session, and the audio is streamed back to the client and played
+   into the virtual microphone.
 
 ### Use of Meta models
 
@@ -153,7 +156,7 @@ Third-party parts it builds on:
 - [`client/virtual-mic/`](client/virtual-mic/README.md) is based on
   Apple's sample "Creating an Audio Server Driver Plug-in".
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) runs the translation
-  model, a fine-tuned GGUF pinned in
+  model, a Gemma 4 E2B fine-tuned for translation (GGUF), pinned in
   [`ml/translate/start.sh`](ml/translate/start.sh).
 - [VoxCPM2](https://github.com/OpenBMB/VoxCPM) with the
   [nano-vllm](https://github.com/a710128/nanovllm-voxcpm) engine runs TTS.

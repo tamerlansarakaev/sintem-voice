@@ -1,6 +1,6 @@
 {
   "name": "client",
-  "productName": "client",
+  "productName": "Sintem Voice",
   "version": "1.0.0",
   "private": true,
   "description": "My Electron application description",
