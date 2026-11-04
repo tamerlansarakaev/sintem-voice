@@ -5,12 +5,12 @@ the other side hears you in theirs, in your own voice, through a virtual
 microphone that works with Zoom, Meet, Discord or any other app. What
 they say comes back as live subtitles over the screen.
 
-Built for the Meta Global AI Developer Hackathon, track "Build for Your
-World".
+Built for the Meta Global AI Developer Hackathon, problem statement
+"Build for Your World".
 
 ## Demo
 
-<!-- Demo video link -->
+[Watch the 3-minute demo on YouTube](https://www.youtube.com/watch?v=ZC8dU3gjAaQ)
 
 ## Features
 
