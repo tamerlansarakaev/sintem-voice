@@ -1,43 +1,44 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-import type {
-  ConfigApi,
-  SubtitlesApi,
-  VirtualMicApi,
-  VoiceApi,
-  WindowControlsApi,
+import {
+  IPC,
+  type ConfigApi,
+  type SubtitlesApi,
+  type VirtualMicApi,
+  type VoiceApi,
+  type WindowControlsApi,
 } from './shared/api';
 
 const subtitles: SubtitlesApi = {
-  open: () => ipcRenderer.send('subtitles:open'),
+  open: () => ipcRenderer.send(IPC.subtitlesOpen),
   onClosed: (callback) => {
     const listener = () => callback();
-    ipcRenderer.on('subtitles:closed', listener);
+    ipcRenderer.on(IPC.subtitlesClosed, listener);
     return () => {
-      ipcRenderer.off('subtitles:closed', listener);
+      ipcRenderer.off(IPC.subtitlesClosed, listener);
     };
   },
 };
 
 const config: ConfigApi = {
-  getBackendUrl: () => ipcRenderer.invoke('config:backend-url'),
+  getBackendUrl: () => ipcRenderer.invoke(IPC.backendUrl),
   platform: process.platform,
 };
 
 const windowControls: WindowControlsApi = {
-  minimize: () => ipcRenderer.send('window:minimize'),
-  toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
-  close: () => ipcRenderer.send('window:close'),
+  minimize: () => ipcRenderer.send(IPC.windowMinimize),
+  toggleMaximize: () => ipcRenderer.send(IPC.windowToggleMaximize),
+  close: () => ipcRenderer.send(IPC.windowClose),
 };
 
 const voice: VoiceApi = {
-  load: () => ipcRenderer.invoke('voice:load'),
-  save: (sample) => ipcRenderer.invoke('voice:save', sample),
+  load: () => ipcRenderer.invoke(IPC.voiceLoad),
+  save: (sample) => ipcRenderer.invoke(IPC.voiceSave, sample),
 };
 
 const virtualMic: VirtualMicApi = {
-  install: () => ipcRenderer.invoke('virtual-mic:install'),
-  uninstall: () => ipcRenderer.invoke('virtual-mic:uninstall'),
+  install: () => ipcRenderer.invoke(IPC.virtualMicInstall),
+  uninstall: () => ipcRenderer.invoke(IPC.virtualMicUninstall),
 };
 
 contextBridge.exposeInMainWorld('subtitles', subtitles);

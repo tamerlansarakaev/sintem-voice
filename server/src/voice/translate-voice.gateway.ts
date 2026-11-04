@@ -11,6 +11,7 @@ import {
   closeCode,
   keepAlive,
   send,
+  sendMetaError,
   toBuffer,
 } from '../transcription/ws.utils.js';
 import { feedTranslator } from '../translation/feed-translator.js';
@@ -34,13 +35,6 @@ interface Pipeline {
   speech: TtsSession;
 }
 
-// URL: /translate-voice?source=ru&target=en
-// In: {"type":"voice","text","wav"} first (the client keeps the sample),
-// then binary PCM s16le 16 kHz mono, then {"type":"endStream"}.
-// Out: {"type":"ready"}, Meta events, {"type":"translationDraft"|
-// "translationFinal","text"}, {"type":"audioFormat","sampleRate",
-// "encoding":"pcm_s16le"}, then binary mono PCM of the translated speech.
-// The socket closes once everything is spoken.
 @WebSocketGateway({ path: '/translate-voice' })
 export class TranslateVoiceGateway implements OnGatewayConnection {
   private readonly logger = new Logger(TranslateVoiceGateway.name);
@@ -51,7 +45,7 @@ export class TranslateVoiceGateway implements OnGatewayConnection {
     private readonly tts: TtsService,
   ) {}
 
-  handleConnection(client: WebSocket, request: IncomingMessage): void {
+  handleConnection(client: WebSocket, request: IncomingMessage) {
     const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
     const source = params.get('source') ?? DEFAULT_SOURCE;
     const target = params.get('target') ?? DEFAULT_TARGET;
@@ -166,7 +160,7 @@ export class TranslateVoiceGateway implements OnGatewayConnection {
         {
           onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
           onEvent: (event) => {
-            send(client, event);
+            sendMetaError(client, event);
             feedTranslator(event, transcript, translator);
           },
           onClose: async (code, reason) => {

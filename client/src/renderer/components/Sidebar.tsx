@@ -4,6 +4,7 @@ import logo from '../assets/logo.png';
 import { useI18n } from '../lib/i18n';
 import type { StringKey } from '../lib/strings';
 import type { Page } from '../main/pages';
+import { MicIcon } from './icons';
 
 interface NavLinkProps {
   page: Page;
@@ -51,10 +52,7 @@ export function Sidebar({ current }: { current: Page }) {
           </svg>
         </NavLink>
         <NavLink page="voice-clone" current={current} label="nav.clone">
-          <svg viewBox="0 0 24 24">
-            <rect x="9" y="3" width="6" height="11" rx="3" />
-            <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
-          </svg>
+          <MicIcon />
         </NavLink>
       </div>
       <NavLink page="settings" current={current} label="nav.settings">

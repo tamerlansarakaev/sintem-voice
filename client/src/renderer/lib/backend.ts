@@ -63,3 +63,30 @@ export function connect(url: string): PendingSocket {
   });
   return { socket, opened, cancelled: false };
 }
+
+export function sendIfOpen(socket: WebSocket, data: string | ArrayBuffer) {
+  if (socket.readyState === WebSocket.OPEN) socket.send(data);
+}
+
+export function endStream(socket: WebSocket) {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'endStream' }));
+  } else {
+    socket.close();
+  }
+}
+
+export function onServerMessage<E>(
+  socket: WebSocket,
+  onEvent: (event: E) => void,
+  onAudio?: (data: ArrayBuffer) => void,
+) {
+  socket.addEventListener('message', ({ data }) => {
+    if (typeof data === 'string') onEvent(JSON.parse(data) as E);
+    else onAudio?.(data);
+  });
+}
+
+export function closeReason(event: CloseEvent) {
+  return event.code === 1000 ? null : event.reason || event.code;
+}

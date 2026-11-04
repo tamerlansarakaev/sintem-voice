@@ -11,6 +11,7 @@ import {
   closeCode,
   keepAlive,
   send,
+  sendMetaError,
   toBuffer,
 } from '../transcription/ws.utils.js';
 import { feedTranslator } from '../translation/feed-translator.js';
@@ -23,10 +24,6 @@ const DEFAULT_SOURCE = 'en';
 const DEFAULT_TARGET = 'ru';
 const DRAIN_TIMEOUT_MS = 5000;
 
-// URL: /translate-subtitles?source=en&target=ru
-// In: binary PCM s16le 16 kHz mono, then {"type":"endStream"}.
-// Out: {"type":"ready","translated"}, Meta events and, when translated
-// (TRANSLATE_URL is set), {"type":"translationDraft"|"translationFinal","text"}.
 @WebSocketGateway({ path: '/translate-subtitles' })
 export class TranslateSubtitlesGateway implements OnGatewayConnection {
   private readonly logger = new Logger(TranslateSubtitlesGateway.name);
@@ -36,7 +33,7 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
     private readonly translateService: TranslateService,
   ) {}
 
-  handleConnection(client: WebSocket, request: IncomingMessage): void {
+  handleConnection(client: WebSocket, request: IncomingMessage) {
     const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
     const target = params.get('target') ?? DEFAULT_TARGET;
     const source = params.get('source') ?? DEFAULT_SOURCE;
@@ -44,37 +41,34 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
       client.close(1008, 'Unsupported language');
       return;
     }
+    if (!this.translateService.enabled) {
+      client.close(1011, 'Subtitles are unavailable');
+      return;
+    }
 
     const transcript = new StableTranscript();
-    const translator = this.translateService.enabled
-      ? new SimultaneousTranslator(
-          this.translateService.translate,
-          { source, target },
-          {
-            draft: (text) => send(client, { type: 'translationDraft', text }),
-            final: (text) => send(client, { type: 'translationFinal', text }),
-            error: (message) => send(client, { type: 'error', message }),
-          },
-        )
-      : undefined;
+    const translator = new SimultaneousTranslator(
+      this.translateService.translate,
+      { source, target },
+      {
+        draft: (text) => send(client, { type: 'translationDraft', text }),
+        final: (text) => send(client, { type: 'translationFinal', text }),
+        error: (message) => send(client, { type: 'error', message }),
+      },
+    );
 
     let session: MetaTranscribeSession;
     try {
       session = this.metaTranscribe.createSession(
         {
-          onReady: (sessionId) =>
-            send(client, {
-              type: 'ready',
-              sessionId,
-              translated: !!translator,
-            }),
+          onReady: (sessionId) => send(client, { type: 'ready', sessionId }),
           onEvent: (event) => {
-            send(client, event);
-            if (translator) feedTranslator(event, transcript, translator);
+            sendMetaError(client, event);
+            feedTranslator(event, transcript, translator);
           },
           onClose: async (code, reason) => {
             // Let the last phrase finish translating after endStream.
-            await translator?.drain(DRAIN_TIMEOUT_MS);
+            await translator.drain(DRAIN_TIMEOUT_MS);
             if (client.readyState !== WebSocket.OPEN) return;
             client.close(closeCode(code), reason);
           },
@@ -101,7 +95,7 @@ export class TranslateSubtitlesGateway implements OnGatewayConnection {
 
     client.on('close', () => {
       session.close();
-      translator?.close();
+      translator.close();
     });
     keepAlive(client);
   }

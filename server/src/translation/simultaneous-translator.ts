@@ -28,17 +28,13 @@ interface Segment {
   length: number;
 }
 
-// Translates the stable transcript while it grows. Source before `cursor`
-// is translated finally; the rest is the queue. A finished sentence is
-// translated finally, a pause translates the whole queue, otherwise drafts
-// run and a draft word is confirmed once two drafts in a row agree on it.
-// Requests run one at a time and are chosen from the latest state.
+// Sentences and pauses are translated finally, the rest as drafts whose
+// words are confirmed once two drafts in a row agree.
 export class SimultaneousTranslator {
   private readonly logger = new Logger(SimultaneousTranslator.name);
   private source = '';
   private cursor = 0;
   private context = '';
-  private hasDraftWords = false;
   private paused = false;
   private pauseTranslated = false;
   private draining = false;
@@ -59,17 +55,16 @@ export class SimultaneousTranslator {
     private readonly events: TranslatorEvents,
   ) {}
 
-  updateSource(stable: string, hasDraftWords: boolean): void {
+  updateSource(stable: string) {
     // Stable text only grows; anything else is ignored.
     if (stable !== this.source && stable.startsWith(this.source)) {
       this.source = stable;
       this.pauseTranslated = false;
     }
-    this.hasDraftWords = hasDraftWords;
     this.runNext();
   }
 
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean) {
     this.paused = paused;
     if (!paused) this.pauseTranslated = false;
     this.runNext();
@@ -88,7 +83,7 @@ export class SimultaneousTranslator {
     this.close();
   }
 
-  close(): void {
+  close() {
     this.closed = true;
     this.abort?.abort();
     this.notifyIdle();
@@ -106,7 +101,7 @@ export class SimultaneousTranslator {
     if (end > 0) {
       return { kind: 'final', text: queue.slice(0, end), length: offset + end };
     }
-    const pause = this.paused && !this.hasDraftWords && !this.pauseTranslated;
+    const pause = this.paused && !this.pauseTranslated;
     if (this.draining || pause) {
       return { kind: 'pause', text: queue.trimEnd(), length: rest.length };
     }
@@ -116,7 +111,7 @@ export class SimultaneousTranslator {
     return null;
   }
 
-  private runNext(): void {
+  private runNext() {
     if (this.busy || this.closed) return;
     const segment = this.nextSegment();
     if (!segment) {
@@ -167,8 +162,7 @@ export class SimultaneousTranslator {
       context: this.context,
     });
     if (this.closed) return;
-    const stillPaused =
-      this.paused && !this.hasDraftWords && this.source === sourceBefore;
+    const stillPaused = this.paused && this.source === sourceBefore;
     if (this.draining || stillPaused) this.finishSegment(segment, translation);
     else this.lastDraftText = '';
   }
@@ -181,7 +175,7 @@ export class SimultaneousTranslator {
     if (!this.closed) this.finishSegment(segment, translation);
   }
 
-  private confirmAgreedWords(words: string[]): void {
+  private confirmAgreedWords(words: string[]) {
     if (this.closed || !this.previousDraft) return;
     let agreed = commonPrefixLength(this.previousDraft, words);
     // A word ending in a comma waits for the next one: confirmed, the comma
@@ -196,7 +190,7 @@ export class SimultaneousTranslator {
     this.events.draft(this.confirmed.join(' '));
   }
 
-  private finishSegment(segment: Segment, translation?: string): void {
+  private finishSegment(segment: Segment, translation?: string) {
     if (translation !== undefined) this.events.final(translation);
     else this.events.skipped?.();
     this.cursor += segment.length;
@@ -206,7 +200,7 @@ export class SimultaneousTranslator {
     this.lastDraftText = '';
   }
 
-  private handleError(segment: Segment, err: Error): void {
+  private handleError(segment: Segment, err: Error) {
     if (this.closed) return;
     // Skip an untranslatable segment instead of retrying it forever.
     if (segment.kind !== 'draft') this.finishSegment(segment);
@@ -218,7 +212,7 @@ export class SimultaneousTranslator {
     this.events.error('Translation is unavailable');
   }
 
-  private notifyIdle(): void {
+  private notifyIdle() {
     this.idleWaiters.splice(0).forEach((resolve) => resolve());
   }
 }

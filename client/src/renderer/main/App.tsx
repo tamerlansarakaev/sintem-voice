@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import logo from '../assets/logo.png';
+import { CloseIcon } from '../components/icons';
 import { OfflineScreen } from '../components/OfflineScreen';
 import { Sidebar } from '../components/Sidebar';
 import { useI18n } from '../lib/i18n';
@@ -46,9 +47,7 @@ function WindowControls() {
         aria-label={t('window.close')}
         onClick={() => window.windowControls.close()}
       >
-        <svg viewBox="0 0 24 24">
-          <path d="M7 7l10 10M17 7L7 17" />
-        </svg>
+        <CloseIcon />
       </button>
     </div>
   );

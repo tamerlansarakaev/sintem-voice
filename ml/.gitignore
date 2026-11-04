@@ -3,6 +3,7 @@ models/
 
 # llama.cpp source and build from translate/setup.sh.
 translate/llama.cpp/
+translate/llama.cpp.part/
 
 # Per-machine compose settings (PARALLEL, CTX_SIZE).
 .env

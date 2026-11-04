@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { Dropdown } from '../components/Dropdown';
-import { listInputs, VIRTUAL_MIC_SUPPORTED } from '../lib/devices';
+import { VIRTUAL_MIC_SUPPORTED } from '../lib/devices';
 import { UI_LANGUAGES, useI18n, type UiLanguage } from '../lib/i18n';
 import { setPref, usePref } from '../lib/prefs';
 import type { StringKey } from '../lib/strings';
@@ -25,33 +25,13 @@ type VirtualStatus = 'Ready' | 'Installed' | 'NotInstalled' | 'Unavailable';
 const DEVICE_WAIT_MS = 15000;
 const DEVICE_POLL_MS = 500;
 
-// Lists of devices that follow plugging and unplugging; `deps` say when
-// `list` itself changes.
-function useDevices<T>(list: () => Promise<T[]>, deps: unknown[]) {
-  const [devices, setDevices] = useState<T[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = () =>
-      list().then((found) => {
-        if (!cancelled) setDevices(found);
-      });
-    refresh();
-    navigator.mediaDevices.addEventListener('devicechange', refresh);
-    return () => {
-      cancelled = true;
-      navigator.mediaDevices.removeEventListener('devicechange', refresh);
-    };
-  }, deps);
-  return devices;
-}
-
 export function Settings({ hidden }: { hidden: boolean }) {
   const { t, language, setLanguage } = useI18n();
-  const { state, refreshVirtualMic } = useAppState();
+  const { state, refreshDevices } = useAppState();
   const inputMic = usePref('inputMic') ?? '';
   const mixOriginal = usePref('mixOriginal') ?? false;
   const toast = useToast();
-  const inputs = useDevices(listInputs, []);
+  const { inputs } = state;
   // Set while the driver is being installed or removed and until the
   // device list catches up.
   const [pending, setPending] = useState<'install' | 'uninstall' | null>(null);
@@ -68,8 +48,8 @@ export function Settings({ hidden }: { hidden: boolean }) {
     status = 'Unavailable';
     hint = t('settings.unavailableHint');
   } else if (device) {
-    status = state.hasVoice ? 'Ready' : 'Installed';
-    hint = state.hasVoice ? device.label : t('settings.installedHint');
+    status = state.voice ? 'Ready' : 'Installed';
+    hint = state.voice ? device.label : t('settings.installedHint');
   } else {
     status = 'NotInstalled';
   }
@@ -81,7 +61,7 @@ export function Settings({ hidden }: { hidden: boolean }) {
       await window.virtualMic[action]();
       const deadline = Date.now() + DEVICE_WAIT_MS;
       while (Date.now() < deadline) {
-        const found = await refreshVirtualMic();
+        const found = await refreshDevices();
         if (Boolean(found) === (action === 'install')) break;
         await new Promise((resolve) => setTimeout(resolve, DEVICE_POLL_MS));
       }

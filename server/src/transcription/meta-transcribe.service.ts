@@ -8,8 +8,6 @@ const META_TRANSCRIBE_MODEL = 'muse-voice-transcribe-1.0';
 // Meta is billed while the session is open, so endStream must not hang.
 const END_STREAM_TIMEOUT_MS = 10_000;
 
-// Server events from Meta: speechStart, transcript, speechEnd,
-// speechComplete, audioProgress, error. Unknown types must be ignored.
 export interface MetaTranscribeEvent {
   type: string;
   [key: string]: unknown;
@@ -36,6 +34,7 @@ export class MetaTranscribeSession {
     private readonly handlers: MetaTranscribeHandlers,
     // Language names such as "English"; a hint, the model may still detect another.
     languageBias?: string[],
+    private readonly logEvents = false,
   ) {
     this.socket = new WebSocket(META_REALTIME_URL);
 
@@ -72,8 +71,7 @@ export class MetaTranscribeSession {
     });
   }
 
-  // Raw PCM: signed 16-bit little-endian, mono, 16 kHz. Frame size is free.
-  sendAudio(chunk: Buffer): void {
+  sendAudio(chunk: Buffer) {
     if (this.endRequested) return;
     if (!this.ready) {
       this.pending.push(chunk);
@@ -82,15 +80,14 @@ export class MetaTranscribeSession {
     if (this.socket.readyState === WebSocket.OPEN) this.socket.send(chunk);
   }
 
-  // Meta flushes the remaining results and closes with 1000.
-  end(): void {
+  end() {
     if (this.endRequested) return;
     this.endRequested = true;
     if (this.ready) this.sendEndStream();
     this.endTimer = setTimeout(() => this.close(), END_STREAM_TIMEOUT_MS);
   }
 
-  close(): void {
+  close() {
     this.pending = [];
     if (
       this.socket.readyState === WebSocket.OPEN ||
@@ -100,7 +97,7 @@ export class MetaTranscribeSession {
     }
   }
 
-  private handleMessage(data: RawData): void {
+  private handleMessage(data: RawData) {
     let message: MetaTranscribeEvent & { sessionId?: string };
     try {
       message = JSON.parse(data.toString());
@@ -116,20 +113,36 @@ export class MetaTranscribeSession {
       return;
     }
 
+    if (message.type === 'error') {
+      this.logger.error(
+        `Meta session ${this.sessionId ?? '(no handshake)'} error: ${JSON.stringify(message)}`,
+      );
+    } else if (this.logEvents) {
+      this.logEvent(message);
+    }
     this.handlers.onEvent(message);
   }
 
-  private onHandshakeAck(sessionId: string): void {
+  // The event type and, when present, the recognized text.
+  private logEvent(event: MetaTranscribeEvent) {
+    const text =
+      typeof event.transcript === 'string' ? ` · "${event.transcript}"` : '';
+    this.logger.log(`Meta ${event.type}${text}`);
+  }
+
+  private onHandshakeAck(sessionId: string) {
     this.ready = true;
     this.sessionId = sessionId;
-    this.logger.log(`Meta session ${sessionId} opened`);
+    this.logger.log(
+      `Meta session ${sessionId} opened (${META_TRANSCRIBE_MODEL})`,
+    );
     for (const chunk of this.pending) this.socket.send(chunk);
     this.pending = [];
     this.handlers.onReady(sessionId);
     if (this.endRequested) this.sendEndStream();
   }
 
-  private sendEndStream(): void {
+  private sendEndStream() {
     if (this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({ type: 'endStream' }));
     }
@@ -145,6 +158,7 @@ export class MetaTranscribeService {
     languageBias?: string[],
   ): MetaTranscribeSession {
     const apiKey = this.config.getOrThrow<string>('META_API_KEY');
-    return new MetaTranscribeSession(apiKey, handlers, languageBias);
+    const logEvents = this.config.get<string>('META_LOG_EVENTS') === 'true';
+    return new MetaTranscribeSession(apiKey, handlers, languageBias, logEvents);
   }
 }

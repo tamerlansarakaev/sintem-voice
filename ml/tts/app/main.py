@@ -8,14 +8,14 @@ import re
 import wave
 from collections import deque
 from collections.abc import AsyncIterator
-from contextlib import aclosing, asynccontextmanager
+from contextlib import aclosing, asynccontextmanager, suppress
 from dataclasses import dataclass
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 from nanovllm_voxcpm import VoxCPM
-from num2words import num2words
-from pydantic import BaseModel, Field
+from num2words import CONVERTER_CLASSES, num2words
 
 MODEL_DIR = os.environ["MODEL_DIR"]
 # Counts memory other GPU processes already use.
@@ -28,8 +28,6 @@ INFERENCE_TIMESTEPS = int(os.environ.get("INFERENCE_TIMESTEPS", "10"))
 FLUSH_IDLE_S = 0.5
 MAX_MERGED_CHARS = 300
 MAX_VOICE_WAV_BYTES = 2 * 1024 * 1024
-MAX_VOICE_TEXT_CHARS = 2000
-VOICE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 # Without final punctuation the model cuts off the last word.
 SENTENCE_END = (".", "!", "?", "…")
 # Kept on continuing text so the voice does not fall.
@@ -37,6 +35,7 @@ PHRASE_END = (",", ";", ":")
 # Synthesized and dropped: the first generation after idle is slower.
 WARMUP = object()
 WARMUP_TEXT = "Hello."
+NOTHING = object()
 # The margin keeps soft word edges when cutting edge silence.
 SILENCE_RMS = 0.01
 SILENCE_FRAME_S = 0.01
@@ -44,14 +43,7 @@ SILENCE_MARGIN_S = 0.12
 # Quiet up to this long is sent at once: it is often a soft word ending.
 QUIET_SENT_S = 0.6
 # Digits are often misread, so numbers are spelled out.
-PERCENT = {
-    "en": "percent",
-    "de": "Prozent",
-    "fr": "pour cent",
-    "es": "por ciento",
-    "ru": "процентов",
-}
-NUMBER_RE = re.compile(r"(?<![\w.,])(\d{1,2}):(\d{2})(?!\d)|(?<![\w.,])\d+(?:[.,]\d+)*(?![\w])(\s*%)?")
+NUMBER_RE = re.compile(r"(?<![\w.,])(\d{1,2}):(\d{2})(?!\d)|(?<![\w.,])\d+(?:[.,]\d+)*(?![\w])")
 
 logger = logging.getLogger("tts")
 
@@ -68,7 +60,6 @@ CFG_VALUE = 2.5
 @dataclass
 class Voice:
     latents: bytes
-    text: str
 
 
 class EngineState:
@@ -77,8 +68,6 @@ class EngineState:
 
 
 state = EngineState()
-# In memory only; after a restart the backend registers voices again.
-voices: dict[str, Voice] = {}
 
 
 @asynccontextmanager
@@ -110,37 +99,15 @@ def health():
     return {"status": "ok"}
 
 
-class VoiceSample(BaseModel):
-    text: str = Field(min_length=1, max_length=MAX_VOICE_TEXT_CHARS)
-    wav: str
-
-
-@app.put("/voices/{voice_id}", status_code=204)
-async def register_voice(voice_id: str, sample: VoiceSample) -> Response:
-    if not VOICE_ID_RE.fullmatch(voice_id):
-        raise HTTPException(400, "invalid voice id")
-    try:
-        wav = base64.b64decode(sample.wav, validate=True)
-    except binascii.Error:
-        raise HTTPException(400, "wav is not base64") from None
-    if len(wav) > MAX_VOICE_WAV_BYTES or wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
-        raise HTTPException(400, "invalid wav")
-
-    try:
-        latents = await state.pool.encode_latents(wav, "wav")
-    except Exception:
-        logger.exception("Could not encode the voice sample")
-        raise HTTPException(400, "invalid wav") from None
-    voices[voice_id] = Voice(latents=latents, text=sample.text)
-    return Response(status_code=204)
-
-
-@app.websocket("/synthesize/{voice_id}")
-async def synthesize(ws: WebSocket, voice_id: str, lang: str = "") -> None:
+@app.websocket("/synthesize")
+async def synthesize(ws: WebSocket, lang: str = "") -> None:
     await ws.accept()
-    voice = voices.get(voice_id)
+    try:
+        voice = await receive_voice(ws)
+    except WebSocketDisconnect:
+        return
     if voice is None:
-        await ws.send_json({"type": "error", "code": "voice_not_registered"})
+        await ws.send_json({"type": "error", "code": "invalid_voice"})
         await ws.close(code=1008)
         return
 
@@ -159,7 +126,7 @@ async def synthesize(ws: WebSocket, voice_id: str, lang: str = "") -> None:
         while True:
             try:
                 message = await asyncio.wait_for(
-                    ws.receive_json(), FLUSH_IDLE_S if buffer else None
+                    receive_message(ws), FLUSH_IDLE_S if buffer else None
                 )
             except TimeoutError:
                 message = {"type": "flush"}
@@ -185,6 +152,34 @@ async def synthesize(ws: WebSocket, voice_id: str, lang: str = "") -> None:
         pass
     finally:
         speaker.cancel()
+        with suppress(asyncio.CancelledError):
+            await speaker
+
+
+# The first message: {"type": "voice", "wav": base64 WAV}.
+async def receive_voice(ws: WebSocket) -> Voice | None:
+    message = await receive_message(ws)
+    if message.get("type") != "voice" or not isinstance(message.get("wav"), str):
+        return None
+    try:
+        wav = base64.b64decode(message["wav"], validate=True)
+    except binascii.Error:
+        return None
+    if len(wav) > MAX_VOICE_WAV_BYTES or wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+        return None
+    try:
+        return Voice(latents=await state.pool.encode_latents(wav, "wav"))
+    except Exception:
+        logger.exception("Could not encode the voice sample")
+        return None
+
+
+async def receive_message(ws: WebSocket) -> dict:
+    try:
+        message = await ws.receive_json()
+    except (ValueError, KeyError):
+        return {}
+    return message if isinstance(message, dict) else {}
 
 
 async def speak(
@@ -192,28 +187,29 @@ async def speak(
 ) -> bool:
     try:
         sample_rate = state.sample_rate
-        waiting: deque[str | object | None] = deque()
+        following: str | object | None = NOTHING
         history: deque[Spoken] = deque()
         while True:
-            text = waiting.popleft() if waiting else await segments.get()
+            text = await segments.get() if following is NOTHING else following
+            following = NOTHING
             if text is None:
                 break
             if text is WARMUP:
+                # The same path as the first portion: the voice without a prompt.
                 async with aclosing(
-                    stream_speech(voice, WARMUP_TEXT, voice.text, voice.latents)
+                    stream_speech(voice, WARMUP_TEXT, "", None)
                 ) as chunks:
                     async for _ in chunks:
                         pass
                 continue
-            text = merge_waiting(text, segments, waiting)
+            text, following = merge_queued(text, segments)
+            # text = spell_numbers(text, lang)
             # A continuation keeps its case.
-            text = (
-                with_sentence_end(spell_numbers(text, lang))
-                if history
-                else as_phrase(text, lang)
-            )
+            if not history:
+                text = text[:1].upper() + text[1:]
+            text = with_sentence_end(text)
             trimmer = EdgeSilenceTrimmer(sample_rate)
-            sent: list[np.ndarray] = []
+            sent: list[bytes] = []
             # The sample gives only the timbre: continuing it would carry its
             # language into the speech. Only this session's speech is continued.
             prompt_text = " ".join(h.text for h in history)
@@ -223,34 +219,37 @@ async def speak(
             ) as chunks:
                 async for chunk in chunks:
                     for part in trimmer.feed(chunk):
-                        sent.append(part)
-                        await ws.send_bytes(to_pcm16(part))
+                        pcm = to_pcm16(part)
+                        sent.append(pcm)
+                        await ws.send_bytes(pcm)
             await ws.send_json({"type": "segmentEnd"})
-            await remember(history, text, sent)
+            await remember(history, text, b"".join(sent), sample_rate)
         return True
     except WebSocketDisconnect:
         return False
     except Exception:
+        # A send to a client that has gone is not a synthesis failure.
+        if WebSocketState.DISCONNECTED in (ws.client_state, ws.application_state):
+            return False
         logger.exception("Synthesis failed")
-        await ws.send_json({"type": "error", "code": "synthesis_failed"})
-        await ws.close(code=1011)
+        with suppress(Exception):
+            await ws.send_json({"type": "error", "code": "synthesis_failed"})
+            await ws.close(code=1011)
         return False
 
 
-def merge_waiting(text: str, segments: asyncio.Queue, waiting: deque) -> str:
+def merge_queued(text: str, segments: asyncio.Queue) -> tuple[str, object]:
     # Segments queued meanwhile are spoken as one generation.
     while True:
-        if not waiting:
-            try:
-                waiting.append(segments.get_nowait())
-            except asyncio.QueueEmpty:
-                return text
-        following = waiting[0]
+        try:
+            following = segments.get_nowait()
+        except asyncio.QueueEmpty:
+            return text, NOTHING
         if not isinstance(following, str):
-            return text
+            return text, following
         if len(text) + 1 + len(following) > MAX_MERGED_CHARS:
-            return text
-        text = f"{text} {waiting.popleft()}"
+            return text, following
+        text = f"{text} {following}"
 
 
 @dataclass
@@ -260,14 +259,15 @@ class Spoken:
     seconds: float
 
 
-async def remember(history: deque[Spoken], text: str, sent: list[np.ndarray]) -> None:
-    if HISTORY_S <= 0 or not sent:
+async def remember(
+    history: deque[Spoken], text: str, pcm: bytes, sample_rate: int
+) -> None:
+    if HISTORY_S <= 0 or not pcm:
         return
-    sample_rate = state.sample_rate
-    audio = np.concatenate(sent)
-    latents = await state.pool.encode_latents(to_wav(audio, sample_rate), "wav")
-    history.append(Spoken(text, latents, len(audio) / sample_rate))
-    while sum(h.seconds for h in history) > HISTORY_S:
+    latents = await state.pool.encode_latents(to_wav(pcm, sample_rate), "wav")
+    history.append(Spoken(text, latents, len(pcm) / 2 / sample_rate))
+    # The latest portion stays even when it alone is longer than HISTORY_S.
+    while len(history) > 1 and sum(h.seconds for h in history) > HISTORY_S:
         history.popleft()
 
 
@@ -329,17 +329,12 @@ class EdgeSilenceTrimmer:
         return rms >= SILENCE_RMS
 
 
-def as_phrase(text: str, lang: str) -> str:
-    text = spell_numbers(text, lang)
-    return with_sentence_end(text[:1].upper() + text[1:])
-
-
 def with_sentence_end(text: str) -> str:
     return text if text.endswith(SENTENCE_END + PHRASE_END) else f"{text}."
 
 
 def spell_numbers(text: str, lang: str) -> str:
-    if lang not in PERCENT:
+    if lang not in CONVERTER_CLASSES:
         return text
 
     def say(number: str) -> str:
@@ -351,22 +346,23 @@ def spell_numbers(text: str, lang: str) -> str:
         return num2words(value, lang=lang)
 
     def replace(match: re.Match[str]) -> str:
-        if match.group(1):
-            return f"{say(match.group(1))} {say(match.group(2))}"
-        sign = match.group(3) or ""
-        words = say(match.group(0)[: len(match.group(0)) - len(sign)])
-        return f"{words} {PERCENT[lang]}" if match.group(3) else words
+        try:
+            if match.group(1):
+                return f"{say(match.group(1))} {say(match.group(2))}"
+            return say(match.group(0))
+        except Exception:
+            return match.group(0)
 
     return NUMBER_RE.sub(replace, text)
 
 
-def to_wav(audio: np.ndarray, sample_rate: int) -> bytes:
+def to_wav(pcm: bytes, sample_rate: int) -> bytes:
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as file:
         file.setnchannels(1)
         file.setsampwidth(2)
         file.setframerate(sample_rate)
-        file.writeframes(to_pcm16(audio))
+        file.writeframes(pcm)
     return buffer.getvalue()
 
 

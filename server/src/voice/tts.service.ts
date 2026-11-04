@@ -13,15 +13,14 @@ export interface TtsHandlers {
   onError(reason: string): void;
 }
 
-// One synthesis stream of the ml/tts service. Text sent before the
-// service is ready is queued. The service keeps voices in memory only, so
-// after its restart the voice is registered again and the stream reopened.
+// One synthesis stream of the ml/tts service. The voice goes first and
+// the service keeps it only for this stream. Text sent before the service
+// is ready is queued.
 export class TtsSession {
   private readonly logger = new Logger(TtsSession.name);
   private socket?: WebSocket;
   private pending: string[] = [];
   private ready = false;
-  private reregistered = false;
   private closed = false;
 
   constructor(
@@ -35,36 +34,42 @@ export class TtsSession {
   }
 
   // One portion of text, spoken as one phrase.
-  speak(text: string): void {
+  speak(text: string) {
     this.send({ type: 'text', text });
     this.send({ type: 'flush' });
   }
 
   // Synthesizes a phrase that is not played, so the first real one does not
-  // wait for the service to wake up. Also registers the voice if needed.
-  warmUp(): void {
+  // wait for the service to wake up.
+  warmUp() {
     this.send({ type: 'warmup' });
   }
 
-  end(): void {
+  end() {
     this.send({ type: 'end' });
   }
 
-  close(): void {
+  close() {
     this.closed = true;
     this.pending = [];
     this.socket?.close();
   }
 
-  private connect(): void {
-    const url = new URL(
-      `/synthesize/${encodeURIComponent(this.voice.key)}`,
-      this.baseUrl,
-    );
+  private connect() {
+    const url = new URL('/synthesize', this.baseUrl);
     url.searchParams.set('lang', this.language);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url);
     this.socket = socket;
+
+    socket.on('open', () => {
+      socket.send(
+        JSON.stringify({
+          type: 'voice',
+          wav: this.voice.wav.toString('base64'),
+        }),
+      );
+    });
 
     socket.on('message', (data, isBinary) => {
       if (isBinary) {
@@ -83,7 +88,7 @@ export class TtsSession {
     });
   }
 
-  private handleMessage(socket: WebSocket, message: TtsMessage): void {
+  private handleMessage(socket: WebSocket, message: TtsMessage) {
     switch (message.type) {
       case 'ready':
         this.ready = true;
@@ -95,49 +100,13 @@ export class TtsSession {
         this.handlers.onDone();
         break;
       case 'error':
-        if (message.code === 'voice_not_registered' && !this.reregistered) {
-          this.reregistered = true;
-          this.reconnect();
-        } else {
-          this.closed = true;
-          this.handlers.onError(message.code);
-        }
+        this.closed = true;
+        this.handlers.onError(message.code);
         break;
     }
   }
 
-  private reconnect(): void {
-    // Detach the old socket so its close does not end the session.
-    const old = this.socket;
-    this.socket = undefined;
-    old?.close();
-    this.register()
-      .then(() => {
-        if (!this.closed) this.connect();
-      })
-      .catch((err: Error) => {
-        this.closed = true;
-        this.handlers.onError(`Voice registration failed: ${err.message}`);
-      });
-  }
-
-  private async register(): Promise<void> {
-    const url = new URL(
-      `/voices/${encodeURIComponent(this.voice.key)}`,
-      this.baseUrl,
-    );
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: this.voice.text,
-        wav: this.voice.wav.toString('base64'),
-      }),
-    });
-    if (!response.ok) throw new Error(`responded ${response.status}`);
-  }
-
-  private send(payload: object): void {
+  private send(payload: object) {
     if (this.closed) return;
     const frame = JSON.stringify(payload);
     if (this.ready && this.socket?.readyState === WebSocket.OPEN) {

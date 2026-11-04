@@ -14,7 +14,7 @@ import {
 } from 'electron';
 import started from 'electron-squirrel-startup';
 
-import type { VoiceSample } from './shared/api';
+import { IPC, type VoiceSample } from './shared/api';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -122,31 +122,31 @@ const openSubtitlesWindow = () => {
 
   subtitlesWindow.on('closed', () => {
     subtitlesWindow = null;
-    mainWindow?.webContents.send('subtitles:closed');
+    mainWindow?.webContents.send(IPC.subtitlesClosed);
   });
 };
 
-ipcMain.on('subtitles:open', openSubtitlesWindow);
+ipcMain.on(IPC.subtitlesOpen, openSubtitlesWindow);
 
 // Buttons of frameless windows act on the window that sent them.
-ipcMain.on('window:minimize', (event) => {
+ipcMain.on(IPC.windowMinimize, (event) => {
   BrowserWindow.fromWebContents(event.sender)?.minimize();
 });
-ipcMain.on('window:toggle-maximize', (event) => {
+ipcMain.on(IPC.windowToggleMaximize, (event) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (window?.isMaximized()) window.unmaximize();
   else window?.maximize();
 });
-ipcMain.on('window:close', (event) => {
+ipcMain.on(IPC.windowClose, (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close();
 });
-ipcMain.handle('config:backend-url', () => BACKEND_URL);
+ipcMain.handle(IPC.backendUrl, () => BACKEND_URL);
 
 // There is no database: the voice sample lives only on this computer and
 // is sent to the server with every live translation session.
 const voicePath = () => path.join(app.getPath('userData'), 'voice.json');
 
-ipcMain.handle('voice:load', async (): Promise<VoiceSample | null> => {
+ipcMain.handle(IPC.voiceLoad, async (): Promise<VoiceSample | null> => {
   try {
     return JSON.parse(await fs.readFile(voicePath(), 'utf8'));
   } catch {
@@ -154,7 +154,7 @@ ipcMain.handle('voice:load', async (): Promise<VoiceSample | null> => {
   }
 });
 
-ipcMain.handle('voice:save', async (_event, voice: Partial<VoiceSample>) => {
+ipcMain.handle(IPC.voiceSave, async (_event, voice: Partial<VoiceSample>) => {
   if (typeof voice?.text !== 'string' || typeof voice?.wav !== 'string') {
     throw new Error('Invalid voice sample');
   }
@@ -192,7 +192,7 @@ async function runAsAdmin(command: string, prompt: string) {
   await run('osascript', ['-e', appleScript]);
 }
 
-ipcMain.handle('virtual-mic:install', async () => {
+ipcMain.handle(IPC.virtualMicInstall, async () => {
   const source = driverSource();
   await fs.access(source).catch(() => {
     throw new Error(`Driver not found at ${source}`);
@@ -228,7 +228,7 @@ ipcMain.handle('virtual-mic:install', async () => {
   }
 });
 
-ipcMain.handle('virtual-mic:uninstall', async () => {
+ipcMain.handle(IPC.virtualMicUninstall, async () => {
   await runAsAdmin(
     `rm -rf ${shellQuote(DRIVER_TARGET)}`,
     'Sintem Voice wants to remove its virtual microphone.',

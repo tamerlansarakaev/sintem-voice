@@ -9,7 +9,7 @@ torchcodec==0.7.0
 flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
 nano-vllm-voxcpm==2.0.5
 num2words==0.5.14
-huggingface-hub
+huggingface-hub==2.4.0
 fastapi==0.115.12
 uvicorn[standard]==0.34.3
-numpy
+numpy==2.5.4

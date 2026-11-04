@@ -18,7 +18,8 @@ BACKEND_URL=http://<host>:3000
 It is built into the app, so restart `npm start` or rebuild the package
 after changing it.
 
-The virtual microphone driver needs Xcode:
+The [virtual microphone driver](virtual-mic/README.md) is based on Apple's
+NullAudio sample. It needs Xcode:
 
 ```bash
 npm run driver:build

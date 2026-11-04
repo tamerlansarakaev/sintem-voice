@@ -732,11 +732,6 @@ html:not(.platform-darwin) .page-header {
 }
 
 /* Floating control bar shared by both voice pages. */
-.debug-download {
-  align-self: center;
-  margin-top: 16px;
-}
-
 .dock {
   position: relative;
   display: flex;
@@ -1093,19 +1088,6 @@ html:not(.platform-darwin) .page-header {
   letter-spacing: -0.01em;
   text-wrap: pretty;
   animation: fade-in 0.35s var(--ease);
-}
-
-.voice-prompt span {
-  transition: color 0.25s;
-}
-
-/* While recording, unread words wait in grey. */
-.voice-clone:is(.recording, .paused) .voice-prompt span {
-  color: var(--text-faint);
-}
-
-.voice-clone:is(.recording, .paused) .voice-prompt span.read {
-  color: var(--accent);
 }
 
 /* Thin line along the bottom edge of the card. */
@@ -1521,6 +1503,17 @@ html:not(.platform-darwin) .page-header {
   white-space: nowrap;
 }
 
+.dropdown-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .dropdown-chevron {
   flex: none;
   width: 14px;
@@ -1766,7 +1759,6 @@ body.subtitles-window {
   display: flex;
   flex: 1;
   flex-direction: column;
-  justify-content: flex-end;
   padding: 14px 20px;
   overflow: auto;
 }

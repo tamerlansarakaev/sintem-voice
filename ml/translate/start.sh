@@ -7,8 +7,11 @@ set -eu
 dir="$(cd "$(dirname "$0")" && pwd)"
 
 # Native runs read settings from .env; in Docker they come from compose.
+# As in compose, variables already set (PARALLEL=2 ./start.sh) win over it.
 if [ -f "$dir/.env" ]; then
+  set_before="$(export -p)"
   set -a; . "$dir/.env"; set +a
+  eval "$set_before"
 fi
 
 # The pinned model. The URL must name a full commit hash, not a branch:
@@ -24,7 +27,7 @@ mkdir -p "$models_dir"
 if [ ! -f "$model" ]; then
   echo "Downloading $MODEL_URL"
   # .part keeps an interrupted download from being taken for the model.
-  curl -fL --retry 3 -o "$model.part" "$MODEL_URL"
+  curl -fL --retry 3 -C - -o "$model.part" "$MODEL_URL"
   mv "$model.part" "$model"
 fi
 
@@ -36,5 +39,4 @@ exec "$llama_server" \
   --port 8100 \
   --parallel "${PARALLEL:-1}" \
   -c "${CTX_SIZE:-4096}" \
-  -ngl 99 \
-  --reasoning-budget 0
+  -ngl 99

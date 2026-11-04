@@ -1,9 +1,17 @@
 import { WebSocket, type RawData } from 'ws';
+import type { MetaTranscribeEvent } from './meta-transcribe.service.js';
 
-export function send(client: WebSocket, payload: object): void {
+export function send(client: WebSocket, payload: object) {
   if (client.readyState === WebSocket.OPEN) {
     client.send(JSON.stringify(payload));
   }
+}
+
+// Meta's events stay on the server; the client only learns that recognition
+// failed. The details are logged by MetaTranscribeSession.
+export function sendMetaError(client: WebSocket, event: MetaTranscribeEvent) {
+  if (event.type !== 'error') return;
+  send(client, { type: 'error', message: 'Speech recognition failed' });
 }
 
 export function toBuffer(data: RawData): Buffer {
@@ -16,7 +24,7 @@ const HEARTBEAT_MS = 15_000;
 
 // A client that vanished without a close frame (sleep, network loss) never
 // fires 'close' on its own. Terminating it lets the gateway end the session.
-export function keepAlive(client: WebSocket): void {
+export function keepAlive(client: WebSocket) {
   let alive = true;
   client.on('pong', () => (alive = true));
   const timer = setInterval(() => {
